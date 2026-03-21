@@ -41,22 +41,22 @@ public final class OverlayPainter {
         double y = MathHelper.lerp(tickDelta, entity.lastRenderY, entity.getY()) - camPos.y;
         double z = MathHelper.lerp(tickDelta, entity.lastRenderZ, entity.getZ()) - camPos.z;
 
-        // getBoundingBox() already returns the EXPANDED box (via EntityBoundsMixin)
-        Box realBox = entity.getBoundingBox();
-        double rW = realBox.maxX - realBox.minX;
-        double rH = realBox.maxY - realBox.minY;
-        double rD = realBox.maxZ - realBox.minZ;
+        // Original entity dimensions (not affected by mixin)
+        double origW = entity.getWidth();
+        double origH = entity.getHeight();
 
-        // In stealth mode: draw original-sized box to hide the expansion
-        double drawW, drawH, drawD;
+        // Compute expanded dimensions from config
+        double expW = origW * prefs.getHScale();
+        double expH = (prefs.getFixedV() > 0) ? prefs.getFixedV() : origH * prefs.getVScale();
+
+        // Stealth mode: draw original size, hide expansion
+        double drawW, drawH;
         if (prefs.isStealth()) {
-            drawW = entity.getWidth();
-            drawH = entity.getHeight();
-            drawD = entity.getWidth();
+            drawW = origW;
+            drawH = origH;
         } else {
-            drawW = rW;
-            drawH = rH;
-            drawD = rD;
+            drawW = expW;
+            drawH = expH;
         }
 
         float r = prefs.getTintR() / 255f;
@@ -68,8 +68,8 @@ public final class OverlayPainter {
         matrices.translate(x, y, z);
 
         Box box = new Box(
-            -drawW / 2.0, 0, -drawD / 2.0,
-             drawW / 2.0, drawH, drawD / 2.0
+            -drawW / 2.0, 0, -drawW / 2.0,
+             drawW / 2.0, drawH, drawW / 2.0
         );
 
         VertexConsumerProvider.Immediate immediate =
@@ -78,7 +78,7 @@ public final class OverlayPainter {
 
         WorldRenderer.drawBox(matrices, lineBuffer, box, r, g, b, a);
 
-        // Eye line
+        // Eye line for living entities
         if (entity instanceof LivingEntity living) {
             float eyeY = living.getStandingEyeHeight();
             if (eyeY > 0 && eyeY < drawH) {

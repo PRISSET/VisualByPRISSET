@@ -2,6 +2,7 @@ package com.prisset.vtools.mixin;
 
 import com.prisset.vtools.VToolsMod;
 import com.prisset.vtools.config.DisplayPrefs;
+import com.prisset.vtools.util.ExpandContext;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.ItemEntity;
 import net.minecraft.entity.mob.MobEntity;
@@ -17,6 +18,9 @@ public abstract class EntityBoundsMixin {
 
     @Inject(method = "getBoundingBox", at = @At("RETURN"), cancellable = true)
     private void vtools$expandBounds(CallbackInfoReturnable<Box> cir) {
+        // Only expand during client raycast (target selection)
+        if (!ExpandContext.isRaycastActive()) return;
+
         DisplayPrefs prefs = VToolsMod.getPrefs();
         if (prefs == null || !prefs.isActive()) return;
 
@@ -30,7 +34,6 @@ public abstract class EntityBoundsMixin {
         double vScale = prefs.getVScale();
         float fixedV = prefs.getFixedV();
 
-        // Skip if scales are default and no fixed height
         if (hScale == 1.0 && vScale == 1.0 && fixedV <= 0) return;
 
         double centerX = (original.minX + original.maxX) / 2.0;
@@ -42,17 +45,12 @@ public abstract class EntityBoundsMixin {
         double origD = original.maxZ - original.minZ;
 
         double newW = origW * hScale;
-        double newH;
-        if (fixedV > 0) {
-            newH = fixedV;
-        } else {
-            newH = origH * vScale;
-        }
+        double newH = (fixedV > 0) ? fixedV : origH * vScale;
         double newD = origD * hScale;
 
         Box expanded = new Box(
-            centerX - newW / 2.0, minY,          centerZ - newD / 2.0,
-            centerX + newW / 2.0, minY + newH,   centerZ + newD / 2.0
+            centerX - newW / 2.0, minY,        centerZ - newD / 2.0,
+            centerX + newW / 2.0, minY + newH, centerZ + newD / 2.0
         );
 
         cir.setReturnValue(expanded);
