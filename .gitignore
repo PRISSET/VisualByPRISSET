@@ -1,0 +1,25 @@
+# Gradle
+.gradle/
+build/
+!mods/*.jar
+
+# IDE
+.idea/
+*.iml
+.project
+.settings/
+.classpath
+.vscode/
+bin/
+out/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Runtime
+run/
+logs/
+
+# Temp
+.tmp/

@@ -1,0 +1,18 @@
+{
+  "prisset-vtools.screen.title": "Visual Tools",
+  "prisset-vtools.opt.active": "Active",
+  "prisset-vtools.opt.dbg": "Debug Only",
+  "prisset-vtools.opt.vs": "Vertical Scale",
+  "prisset-vtools.opt.hs": "Horizontal Scale",
+  "prisset-vtools.opt.fv": "Fixed Vertical",
+  "prisset-vtools.opt.tr": "Tint R",
+  "prisset-vtools.opt.tg": "Tint G",
+  "prisset-vtools.opt.tb": "Tint B",
+  "prisset-vtools.opt.ta": "Tint A",
+  "prisset-vtools.opt.fp": "Players",
+  "prisset-vtools.opt.fm": "Mobs",
+  "prisset-vtools.opt.fd": "Drops",
+  "prisset-vtools.opt.apply": "Apply & Close",
+  "prisset-vtools.val.on": "ON",
+  "prisset-vtools.val.off": "OFF"
+}

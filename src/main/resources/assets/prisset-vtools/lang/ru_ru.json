@@ -1,0 +1,18 @@
+{
+  "prisset-vtools.screen.title": "Visual Tools",
+  "prisset-vtools.opt.active": "Активно",
+  "prisset-vtools.opt.dbg": "Только в дебаге",
+  "prisset-vtools.opt.vs": "Верт. масштаб",
+  "prisset-vtools.opt.hs": "Гориз. масштаб",
+  "prisset-vtools.opt.fv": "Фикс. высота",
+  "prisset-vtools.opt.tr": "Оттенок R",
+  "prisset-vtools.opt.tg": "Оттенок G",
+  "prisset-vtools.opt.tb": "Оттенок B",
+  "prisset-vtools.opt.ta": "Оттенок A",
+  "prisset-vtools.opt.fp": "Игроки",
+  "prisset-vtools.opt.fm": "Мобы",
+  "prisset-vtools.opt.fd": "Дроп",
+  "prisset-vtools.opt.apply": "Применить",
+  "prisset-vtools.val.on": "ВКЛ",
+  "prisset-vtools.val.off": "ВЫКЛ"
+}
