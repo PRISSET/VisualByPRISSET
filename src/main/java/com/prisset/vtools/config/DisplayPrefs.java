@@ -27,6 +27,7 @@ public class DisplayPrefs {
     private boolean filterPlayers;
     private boolean filterMobs;
     private boolean filterDrops;
+    private boolean stealth;
 
     private DisplayPrefs() {
         this.active = false;
@@ -41,6 +42,7 @@ public class DisplayPrefs {
         this.filterPlayers = true;
         this.filterMobs = true;
         this.filterDrops = false;
+        this.stealth = false;
     }
 
     public static DisplayPrefs defaults() {
@@ -63,6 +65,7 @@ public class DisplayPrefs {
         obj.addProperty("fp", filterPlayers);
         obj.addProperty("fm", filterMobs);
         obj.addProperty("fd", filterDrops);
+        obj.addProperty("st", stealth);
         return obj;
     }
 
@@ -80,6 +83,7 @@ public class DisplayPrefs {
         if (obj.has("fp")) prefs.filterPlayers = obj.get("fp").getAsBoolean();
         if (obj.has("fm")) prefs.filterMobs = obj.get("fm").getAsBoolean();
         if (obj.has("fd")) prefs.filterDrops = obj.get("fd").getAsBoolean();
+        if (obj.has("st")) prefs.stealth = obj.get("st").getAsBoolean();
         return prefs;
     }
 
@@ -130,6 +134,7 @@ public class DisplayPrefs {
     public boolean isFilterPlayers() { return filterPlayers; }
     public boolean isFilterMobs() { return filterMobs; }
     public boolean isFilterDrops() { return filterDrops; }
+    public boolean isStealth() { return stealth; }
 
     // --- Setters ---
 
@@ -145,6 +150,7 @@ public class DisplayPrefs {
     public void setFilterPlayers(boolean val) { this.filterPlayers = val; }
     public void setFilterMobs(boolean val) { this.filterMobs = val; }
     public void setFilterDrops(boolean val) { this.filterDrops = val; }
+    public void setStealth(boolean val) { this.stealth = val; }
 
     // --- Utility ---
 

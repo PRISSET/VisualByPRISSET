@@ -11,9 +11,9 @@ public class PrefsScreen extends Screen {
 
     private final DisplayPrefs prefs;
 
-    // mutable copies — applied on save
     private boolean active;
     private boolean debugOnly;
+    private boolean stealth;
     private float vScale;
     private float hScale;
     private float fixedV;
@@ -26,10 +26,11 @@ public class PrefsScreen extends Screen {
     private boolean filterDrops;
 
     public PrefsScreen(DisplayPrefs prefs) {
-        super(Text.translatable("prisset-vtools.screen.title"));
+        super(Text.literal("PRISSET Visual Tools"));
         this.prefs = prefs;
         this.active = prefs.isActive();
         this.debugOnly = prefs.isDebugOnly();
+        this.stealth = prefs.isStealth();
         this.vScale = prefs.getVScale();
         this.hScale = prefs.getHScale();
         this.fixedV = prefs.getFixedV();
@@ -44,130 +45,118 @@ public class PrefsScreen extends Screen {
 
     @Override
     protected void init() {
-        int centerX = this.width / 2;
-        int sliderW = 200;
-        int left = centerX - sliderW / 2;
-        int y = 30;
-        int rowH = 24;
+        int cx = this.width / 2;
+        int w = 200;
+        int left = cx - w / 2;
+        int y = 24;
 
-        // Active toggle
+        // === MAIN TOGGLES ===
+
         addDrawableChild(CyclingButtonWidget.onOffBuilder(
-                Text.translatable("prisset-vtools.val.on"),
-                Text.translatable("prisset-vtools.val.off"))
+                Text.literal("ON"), Text.literal("OFF"))
             .initially(active)
-            .build(left, y, sliderW, 20,
-                Text.translatable("prisset-vtools.opt.active"),
-                (button, value) -> active = value));
-        y += rowH;
+            .build(left, y, w, 20,
+                Text.literal("Overlay Active"),
+                (btn, val) -> active = val));
+        y += 22;
 
-        // Debug only toggle
         addDrawableChild(CyclingButtonWidget.onOffBuilder(
-                Text.translatable("prisset-vtools.val.on"),
-                Text.translatable("prisset-vtools.val.off"))
+                Text.literal("ON"), Text.literal("OFF"))
             .initially(debugOnly)
-            .build(left, y, sliderW, 20,
-                Text.translatable("prisset-vtools.opt.dbg"),
-                (button, value) -> debugOnly = value));
-        y += rowH + 4;
+            .build(left, y, w, 20,
+                Text.literal("Only with F3+B"),
+                (btn, val) -> debugOnly = val));
+        y += 22;
 
-        // Vertical Scale slider (0.1 - 5.0)
-        addDrawableChild(new ValueSlider(left, y, sliderW, 20,
+        addDrawableChild(CyclingButtonWidget.onOffBuilder(
+                Text.literal("ON"), Text.literal("OFF"))
+            .initially(stealth)
+            .build(left, y, w, 20,
+                Text.literal("Stealth Mode"),
+                (btn, val) -> stealth = val));
+        y += 26;
+
+        // === SIZE CONTROLS ===
+
+        addDrawableChild(new ValueSlider(left, y, w, 20,
             0.1, 5.0, vScale,
-            val -> Text.translatable("prisset-vtools.opt.vs")
-                .append(": " + String.format("%.1fx", val)),
+            val -> Text.literal("Height Scale: " + String.format("%.1fx", val)),
             val -> vScale = val.floatValue()));
-        y += rowH;
+        y += 22;
 
-        // Horizontal Scale slider (0.1 - 5.0)
-        addDrawableChild(new ValueSlider(left, y, sliderW, 20,
+        addDrawableChild(new ValueSlider(left, y, w, 20,
             0.1, 5.0, hScale,
-            val -> Text.translatable("prisset-vtools.opt.hs")
-                .append(": " + String.format("%.1fx", val)),
+            val -> Text.literal("Width Scale: " + String.format("%.1fx", val)),
             val -> hScale = val.floatValue()));
-        y += rowH;
+        y += 22;
 
-        // Fixed Vertical slider (0.0 - 10.0, where 0 = auto)
-        addDrawableChild(new ValueSlider(left, y, sliderW, 20,
+        addDrawableChild(new ValueSlider(left, y, w, 20,
             0.0, 10.0, fixedV < 0 ? 0.0 : fixedV,
-            val -> {
-                String display = val < 0.05 ? "Auto" : String.format("%.1f", val);
-                return Text.translatable("prisset-vtools.opt.fv").append(": " + display);
-            },
+            val -> Text.literal("Fixed Height: " + (val < 0.05 ? "Auto" : String.format("%.1f", val))),
             val -> fixedV = val < 0.05f ? -1.0f : val.floatValue()));
-        y += rowH + 4;
+        y += 26;
 
-        // Tint R
-        addDrawableChild(new ValueSlider(left, y, sliderW, 20,
+        // === COLOR ===
+
+        addDrawableChild(new ValueSlider(left, y, w, 20,
             0, 255, tintR,
-            val -> Text.translatable("prisset-vtools.opt.tr")
-                .append(": " + val.intValue()),
+            val -> Text.literal("Red: " + val.intValue()),
             val -> tintR = val.intValue()));
-        y += rowH;
+        y += 22;
 
-        // Tint G
-        addDrawableChild(new ValueSlider(left, y, sliderW, 20,
+        addDrawableChild(new ValueSlider(left, y, w, 20,
             0, 255, tintG,
-            val -> Text.translatable("prisset-vtools.opt.tg")
-                .append(": " + val.intValue()),
+            val -> Text.literal("Green: " + val.intValue()),
             val -> tintG = val.intValue()));
-        y += rowH;
+        y += 22;
 
-        // Tint B
-        addDrawableChild(new ValueSlider(left, y, sliderW, 20,
+        addDrawableChild(new ValueSlider(left, y, w, 20,
             0, 255, tintB,
-            val -> Text.translatable("prisset-vtools.opt.tb")
-                .append(": " + val.intValue()),
+            val -> Text.literal("Blue: " + val.intValue()),
             val -> tintB = val.intValue()));
-        y += rowH;
+        y += 22;
 
-        // Tint A
-        addDrawableChild(new ValueSlider(left, y, sliderW, 20,
+        addDrawableChild(new ValueSlider(left, y, w, 20,
             0, 255, tintA,
-            val -> Text.translatable("prisset-vtools.opt.ta")
-                .append(": " + val.intValue()),
+            val -> Text.literal("Alpha: " + val.intValue()),
             val -> tintA = val.intValue()));
-        y += rowH + 8;
+        y += 26;
 
-        // Color preview will be drawn in render() at this Y
-        int previewY = y;
-        y += 24;
+        // === ENTITY FILTERS ===
 
-        // Entity filter toggles — 3 in a row
         int btnW = 64;
         int gap = 4;
         int totalW = btnW * 3 + gap * 2;
-        int filterLeft = centerX - totalW / 2;
+        int fl = cx - totalW / 2;
 
         addDrawableChild(CyclingButtonWidget.onOffBuilder(
-                Text.translatable("prisset-vtools.val.on"),
-                Text.translatable("prisset-vtools.val.off"))
+                Text.literal("ON"), Text.literal("OFF"))
             .initially(filterPlayers)
-            .build(filterLeft, y, btnW, 20,
-                Text.translatable("prisset-vtools.opt.fp"),
-                (button, value) -> filterPlayers = value));
+            .build(fl, y, btnW, 20,
+                Text.literal("Players"),
+                (btn, val) -> filterPlayers = val));
 
         addDrawableChild(CyclingButtonWidget.onOffBuilder(
-                Text.translatable("prisset-vtools.val.on"),
-                Text.translatable("prisset-vtools.val.off"))
+                Text.literal("ON"), Text.literal("OFF"))
             .initially(filterMobs)
-            .build(filterLeft + btnW + gap, y, btnW, 20,
-                Text.translatable("prisset-vtools.opt.fm"),
-                (button, value) -> filterMobs = value));
+            .build(fl + btnW + gap, y, btnW, 20,
+                Text.literal("Mobs"),
+                (btn, val) -> filterMobs = val));
 
         addDrawableChild(CyclingButtonWidget.onOffBuilder(
-                Text.translatable("prisset-vtools.val.on"),
-                Text.translatable("prisset-vtools.val.off"))
+                Text.literal("ON"), Text.literal("OFF"))
             .initially(filterDrops)
-            .build(filterLeft + (btnW + gap) * 2, y, btnW, 20,
-                Text.translatable("prisset-vtools.opt.fd"),
-                (button, value) -> filterDrops = value));
-        y += rowH + 8;
+            .build(fl + (btnW + gap) * 2, y, btnW, 20,
+                Text.literal("Drops"),
+                (btn, val) -> filterDrops = val));
+        y += 28;
 
-        // Apply & Close button
+        // === APPLY BUTTON ===
+
         addDrawableChild(ButtonWidget.builder(
-                Text.translatable("prisset-vtools.opt.apply"),
-                button -> applyAndClose())
-            .dimensions(centerX - 50, y, 100, 20)
+                Text.literal("Apply & Close"),
+                btn -> applyAndClose())
+            .dimensions(cx - 60, y, 120, 20)
             .build());
     }
 
@@ -176,23 +165,23 @@ public class PrefsScreen extends Screen {
         renderBackground(context);
 
         // Title
-        context.drawCenteredTextWithShadow(
-            this.textRenderer,
-            this.title,
-            this.width / 2,
-            12,
-            0xFFFFFF
-        );
+        context.drawCenteredTextWithShadow(this.textRenderer, this.title,
+            this.width / 2, 8, 0x00FF00);
 
         // Color preview swatch
-        int previewSize = 16;
-        int previewX = this.width / 2 - previewSize / 2;
-        // positioned after tint A slider (row 8 from top, each 24px, offset 30 start + 8*24 + 8 gap)
-        int previewY = 30 + 8 * 24 + 12;
+        int swatchSize = 20;
+        int swatchX = this.width / 2 + 110;
+        int swatchY = 24 + 7 * 22 + 26;
         int color = (tintA << 24) | (tintR << 16) | (tintG << 8) | tintB;
-        context.fill(previewX, previewY, previewX + previewSize, previewY + previewSize, color);
-        // border
-        context.drawBorder(previewX - 1, previewY - 1, previewSize + 2, previewSize + 2, 0xFFAAAAAA);
+        context.fill(swatchX, swatchY, swatchX + swatchSize, swatchY + swatchSize, color);
+        context.drawBorder(swatchX - 1, swatchY - 1, swatchSize + 2, swatchSize + 2, 0xFFAAAAAA);
+
+        // Stealth mode hint
+        if (stealth) {
+            context.drawCenteredTextWithShadow(this.textRenderer,
+                Text.literal("Stealth: expanded box hidden visually"),
+                this.width / 2, this.height - 14, 0xFF5555);
+        }
 
         super.render(context, mouseX, mouseY, delta);
     }
@@ -205,6 +194,7 @@ public class PrefsScreen extends Screen {
     private void applyAndClose() {
         prefs.setActive(active);
         prefs.setDebugOnly(debugOnly);
+        prefs.setStealth(stealth);
         prefs.setVScale(vScale);
         prefs.setHScale(hScale);
         prefs.setFixedV(fixedV);

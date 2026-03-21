@@ -4,34 +4,45 @@ import com.prisset.vtools.VToolsMod;
 import com.prisset.vtools.config.DisplayPrefs;
 import com.prisset.vtools.render.OverlayPainter;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.render.VertexConsumerProvider;
-import net.minecraft.client.render.entity.EntityRenderer;
+import net.minecraft.client.render.*;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.entity.Entity;
+import org.joml.Matrix4f;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-@Mixin(EntityRenderer.class)
-public abstract class RenderPassMixin<T extends Entity> {
+@Mixin(WorldRenderer.class)
+public abstract class RenderPassMixin {
 
-    @Inject(method = "render", at = @At("TAIL"))
-    private void vtools$afterRender(T entity, float yaw, float tickDelta,
-                                     MatrixStack matrices,
-                                     VertexConsumerProvider vertexConsumers,
-                                     int light, CallbackInfo ci) {
+    @Inject(
+        method = "render",
+        at = @At("RETURN")
+    )
+    private void vtools$afterWorldRender(
+            MatrixStack matrices,
+            float tickDelta,
+            long limitTime,
+            boolean renderBlockOutline,
+            Camera camera,
+            GameRenderer gameRenderer,
+            LightmapTextureManager lightmapTextureManager,
+            Matrix4f projectionMatrix,
+            CallbackInfo ci
+    ) {
         DisplayPrefs prefs = VToolsMod.getPrefs();
         if (prefs == null || !prefs.isActive()) return;
 
         MinecraftClient client = MinecraftClient.getInstance();
+        if (client.world == null) return;
+
         if (prefs.isDebugOnly()) {
-            // Check vanilla debug overlay state via dispatcher
             boolean debugActive = client.getEntityRenderDispatcher()
                 .shouldRenderHitboxes();
             if (!debugActive) return;
         }
 
-        OverlayPainter.paint(entity, tickDelta, matrices, vertexConsumers, prefs);
+        OverlayPainter.paintAll(client, matrices, tickDelta, camera, prefs);
     }
 }
