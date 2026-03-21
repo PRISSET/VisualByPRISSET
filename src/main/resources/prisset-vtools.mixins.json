@@ -5,9 +5,8 @@
   "client": [
     "RenderPassMixin",
     "KeyboardMixin",
-    "EntityBoundsMixin",
-    "TargetFinderMixin",
-    "AttackGuardMixin"
+    "RaycastExpandMixin",
+    "InteractionGuardMixin"
   ],
   "injectors": {
     "defaultRequire": 1

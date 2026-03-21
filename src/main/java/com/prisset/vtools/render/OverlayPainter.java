@@ -45,19 +45,9 @@ public final class OverlayPainter {
         double origW = entity.getWidth();
         double origH = entity.getHeight();
 
-        // Compute expanded dimensions from config
-        double expW = origW * prefs.getHScale();
-        double expH = (prefs.getFixedV() > 0) ? prefs.getFixedV() : origH * prefs.getVScale();
-
-        // Stealth mode: draw original size, hide expansion
-        double drawW, drawH;
-        if (prefs.isStealth()) {
-            drawW = origW;
-            drawH = origH;
-        } else {
-            drawW = expW;
-            drawH = expH;
-        }
+        // Compute display dimensions from config
+        double drawW = origW * prefs.getHScale();
+        double drawH = (prefs.getFixedV() > 0) ? prefs.getFixedV() : origH * prefs.getVScale();
 
         float r = prefs.getTintR() / 255f;
         float g = prefs.getTintG() / 255f;

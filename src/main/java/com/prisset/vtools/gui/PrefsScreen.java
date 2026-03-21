@@ -13,7 +13,6 @@ public class PrefsScreen extends Screen {
 
     private boolean active;
     private boolean debugOnly;
-    private boolean stealth;
     private float vScale;
     private float hScale;
     private float fixedV;
@@ -30,7 +29,6 @@ public class PrefsScreen extends Screen {
         this.prefs = prefs;
         this.active = prefs.isActive();
         this.debugOnly = prefs.isDebugOnly();
-        this.stealth = prefs.isStealth();
         this.vScale = prefs.getVScale();
         this.hScale = prefs.getHScale();
         this.fixedV = prefs.getFixedV();
@@ -50,7 +48,7 @@ public class PrefsScreen extends Screen {
         int left = cx - w / 2;
         int y = 28;
 
-        // === MAIN ===
+        // === \u041e\u0421\u041d\u041e\u0412\u041d\u041e\u0415 ===
 
         addDrawableChild(CyclingButtonWidget.onOffBuilder(
                 Text.literal("\u00a7a\u0412\u041a\u041b"), Text.literal("\u00a7c\u0412\u042b\u041a\u041b"))
@@ -66,17 +64,9 @@ public class PrefsScreen extends Screen {
             .build(left, y, w, 20,
                 Text.literal("\u0422\u043e\u043b\u044c\u043a\u043e \u0441 F3+B"),
                 (btn, val) -> debugOnly = val));
-        y += 22;
-
-        addDrawableChild(CyclingButtonWidget.onOffBuilder(
-                Text.literal("\u00a7a\u0412\u041a\u041b"), Text.literal("\u00a7c\u0412\u042b\u041a\u041b"))
-            .initially(stealth)
-            .build(left, y, w, 20,
-                Text.literal("\u00a76\u0421\u043a\u0440\u044b\u0442\u044b\u0439 \u0445\u0438\u0442\u0431\u043e\u043a\u0441"),
-                (btn, val) -> stealth = val));
         y += 26;
 
-        // === SIZE ===
+        // === \u0420\u0410\u0417\u041c\u0415\u0420\u042b ===
 
         addDrawableChild(new ValueSlider(left, y, w, 20,
             0.5, 5.0, vScale,
@@ -96,7 +86,7 @@ public class PrefsScreen extends Screen {
             val -> fixedV = val < 0.05f ? -1.0f : val.floatValue()));
         y += 26;
 
-        // === COLOR ===
+        // === \u0426\u0412\u0415\u0422 ===
 
         addDrawableChild(new ValueSlider(left, y, w, 20,
             0, 255, tintR,
@@ -122,7 +112,7 @@ public class PrefsScreen extends Screen {
             val -> tintA = val.intValue()));
         y += 26;
 
-        // === FILTERS ===
+        // === \u0424\u0418\u041b\u042c\u0422\u0420\u042b ===
 
         int btnW = 66;
         int gap = 4;
@@ -151,7 +141,7 @@ public class PrefsScreen extends Screen {
                 (btn, val) -> filterDrops = val));
         y += 28;
 
-        // === APPLY ===
+        // === \u041f\u0420\u0418\u041c\u0415\u041d\u0418\u0422\u042c ===
 
         addDrawableChild(ButtonWidget.builder(
                 Text.literal("\u00a7a\u041f\u0440\u0438\u043c\u0435\u043d\u0438\u0442\u044c"),
@@ -164,24 +154,21 @@ public class PrefsScreen extends Screen {
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         renderBackground(context);
 
-        // Title
         context.drawCenteredTextWithShadow(this.textRenderer, this.title,
             this.width / 2, 10, 0xFFFFFF);
 
         // Color swatch
         int sz = 20;
         int sx = this.width / 2 + 115;
-        int sy = 28 + 7 * 22 + 26;
+        int sy = 28 + 6 * 22 + 26;
         int color = (tintA << 24) | (tintR << 16) | (tintG << 8) | tintB;
         context.fill(sx, sy, sx + sz, sy + sz, color);
         context.drawBorder(sx - 1, sy - 1, sz + 2, sz + 2, 0xFFAAAAAA);
 
-        // Stealth hint
-        if (stealth) {
-            context.drawCenteredTextWithShadow(this.textRenderer,
-                Text.literal("\u00a76\u0421\u043a\u0440\u044b\u0442\u044b\u0439 \u0440\u0435\u0436\u0438\u043c: \u0445\u0438\u0442\u0431\u043e\u043a\u0441 \u0440\u0430\u0441\u0448\u0438\u0440\u0435\u043d, \u043d\u043e \u0432\u0438\u0437\u0443\u0430\u043b\u044c\u043d\u043e \u043e\u0431\u044b\u0447\u043d\u044b\u0439"),
-                this.width / 2, this.height - 14, 0xFFFFFF);
-        }
+        // Hint
+        context.drawCenteredTextWithShadow(this.textRenderer,
+            Text.literal("\u00a77\u0423\u0434\u0430\u0440\u044b \u0440\u0430\u0431\u043e\u0442\u0430\u044e\u0442 \u0442\u043e\u043b\u044c\u043a\u043e \u0434\u043e 3.0 \u0431\u043b\u043e\u043a\u043e\u0432"),
+            this.width / 2, this.height - 14, 0xFFFFFF);
 
         super.render(context, mouseX, mouseY, delta);
     }
@@ -194,7 +181,6 @@ public class PrefsScreen extends Screen {
     private void applyAndClose() {
         prefs.setActive(active);
         prefs.setDebugOnly(debugOnly);
-        prefs.setStealth(stealth);
         prefs.setVScale(vScale);
         prefs.setHScale(hScale);
         prefs.setFixedV(fixedV);
