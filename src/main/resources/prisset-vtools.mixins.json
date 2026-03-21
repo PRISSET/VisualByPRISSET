@@ -4,7 +4,8 @@
   "compatibilityLevel": "JAVA_17",
   "client": [
     "RenderPassMixin",
-    "KeyboardMixin"
+    "KeyboardMixin",
+    "EntityBoundsMixin"
   ],
   "injectors": {
     "defaultRequire": 1

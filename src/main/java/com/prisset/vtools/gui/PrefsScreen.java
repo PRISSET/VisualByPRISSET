@@ -26,7 +26,7 @@ public class PrefsScreen extends Screen {
     private boolean filterDrops;
 
     public PrefsScreen(DisplayPrefs prefs) {
-        super(Text.literal("PRISSET Visual Tools"));
+        super(Text.literal("\u00a7aPRISSET \u00a7fVisual Tools"));
         this.prefs = prefs;
         this.active = prefs.isActive();
         this.debugOnly = prefs.isDebugOnly();
@@ -46,53 +46,53 @@ public class PrefsScreen extends Screen {
     @Override
     protected void init() {
         int cx = this.width / 2;
-        int w = 200;
+        int w = 210;
         int left = cx - w / 2;
-        int y = 24;
+        int y = 28;
 
-        // === MAIN TOGGLES ===
+        // === MAIN ===
 
         addDrawableChild(CyclingButtonWidget.onOffBuilder(
-                Text.literal("ON"), Text.literal("OFF"))
+                Text.literal("\u00a7a\u0412\u041a\u041b"), Text.literal("\u00a7c\u0412\u042b\u041a\u041b"))
             .initially(active)
             .build(left, y, w, 20,
-                Text.literal("Overlay Active"),
+                Text.literal("\u041e\u0432\u0435\u0440\u043b\u0435\u0439"),
                 (btn, val) -> active = val));
         y += 22;
 
         addDrawableChild(CyclingButtonWidget.onOffBuilder(
-                Text.literal("ON"), Text.literal("OFF"))
+                Text.literal("\u00a7a\u0412\u041a\u041b"), Text.literal("\u00a7c\u0412\u042b\u041a\u041b"))
             .initially(debugOnly)
             .build(left, y, w, 20,
-                Text.literal("Only with F3+B"),
+                Text.literal("\u0422\u043e\u043b\u044c\u043a\u043e \u0441 F3+B"),
                 (btn, val) -> debugOnly = val));
         y += 22;
 
         addDrawableChild(CyclingButtonWidget.onOffBuilder(
-                Text.literal("ON"), Text.literal("OFF"))
+                Text.literal("\u00a7a\u0412\u041a\u041b"), Text.literal("\u00a7c\u0412\u042b\u041a\u041b"))
             .initially(stealth)
             .build(left, y, w, 20,
-                Text.literal("Stealth Mode"),
+                Text.literal("\u00a76\u0421\u043a\u0440\u044b\u0442\u044b\u0439 \u0445\u0438\u0442\u0431\u043e\u043a\u0441"),
                 (btn, val) -> stealth = val));
         y += 26;
 
-        // === SIZE CONTROLS ===
+        // === SIZE ===
 
         addDrawableChild(new ValueSlider(left, y, w, 20,
-            0.1, 5.0, vScale,
-            val -> Text.literal("Height Scale: " + String.format("%.1fx", val)),
+            0.5, 5.0, vScale,
+            val -> Text.literal("\u0412\u044b\u0441\u043e\u0442\u0430: " + String.format("%.1fx", val)),
             val -> vScale = val.floatValue()));
         y += 22;
 
         addDrawableChild(new ValueSlider(left, y, w, 20,
-            0.1, 5.0, hScale,
-            val -> Text.literal("Width Scale: " + String.format("%.1fx", val)),
+            0.5, 5.0, hScale,
+            val -> Text.literal("\u0428\u0438\u0440\u0438\u043d\u0430: " + String.format("%.1fx", val)),
             val -> hScale = val.floatValue()));
         y += 22;
 
         addDrawableChild(new ValueSlider(left, y, w, 20,
             0.0, 10.0, fixedV < 0 ? 0.0 : fixedV,
-            val -> Text.literal("Fixed Height: " + (val < 0.05 ? "Auto" : String.format("%.1f", val))),
+            val -> Text.literal("\u0424\u0438\u043a\u0441. \u0432\u044b\u0441\u043e\u0442\u0430: " + (val < 0.05 ? "\u0410\u0432\u0442\u043e" : String.format("%.1f", val))),
             val -> fixedV = val < 0.05f ? -1.0f : val.floatValue()));
         y += 26;
 
@@ -100,61 +100,61 @@ public class PrefsScreen extends Screen {
 
         addDrawableChild(new ValueSlider(left, y, w, 20,
             0, 255, tintR,
-            val -> Text.literal("Red: " + val.intValue()),
+            val -> Text.literal("\u00a7c\u041a\u0440\u0430\u0441\u043d\u044b\u0439: " + val.intValue()),
             val -> tintR = val.intValue()));
         y += 22;
 
         addDrawableChild(new ValueSlider(left, y, w, 20,
             0, 255, tintG,
-            val -> Text.literal("Green: " + val.intValue()),
+            val -> Text.literal("\u00a7a\u0417\u0435\u043b\u0451\u043d\u044b\u0439: " + val.intValue()),
             val -> tintG = val.intValue()));
         y += 22;
 
         addDrawableChild(new ValueSlider(left, y, w, 20,
             0, 255, tintB,
-            val -> Text.literal("Blue: " + val.intValue()),
+            val -> Text.literal("\u00a79\u0421\u0438\u043d\u0438\u0439: " + val.intValue()),
             val -> tintB = val.intValue()));
         y += 22;
 
         addDrawableChild(new ValueSlider(left, y, w, 20,
             0, 255, tintA,
-            val -> Text.literal("Alpha: " + val.intValue()),
+            val -> Text.literal("\u00a77\u041f\u0440\u043e\u0437\u0440\u0430\u0447\u043d\u043e\u0441\u0442\u044c: " + val.intValue()),
             val -> tintA = val.intValue()));
         y += 26;
 
-        // === ENTITY FILTERS ===
+        // === FILTERS ===
 
-        int btnW = 64;
+        int btnW = 66;
         int gap = 4;
         int totalW = btnW * 3 + gap * 2;
         int fl = cx - totalW / 2;
 
         addDrawableChild(CyclingButtonWidget.onOffBuilder(
-                Text.literal("ON"), Text.literal("OFF"))
+                Text.literal("\u00a7a\u0414\u0430"), Text.literal("\u00a7c\u041d\u0435\u0442"))
             .initially(filterPlayers)
             .build(fl, y, btnW, 20,
-                Text.literal("Players"),
+                Text.literal("\u0418\u0433\u0440\u043e\u043a\u0438"),
                 (btn, val) -> filterPlayers = val));
 
         addDrawableChild(CyclingButtonWidget.onOffBuilder(
-                Text.literal("ON"), Text.literal("OFF"))
+                Text.literal("\u00a7a\u0414\u0430"), Text.literal("\u00a7c\u041d\u0435\u0442"))
             .initially(filterMobs)
             .build(fl + btnW + gap, y, btnW, 20,
-                Text.literal("Mobs"),
+                Text.literal("\u041c\u043e\u0431\u044b"),
                 (btn, val) -> filterMobs = val));
 
         addDrawableChild(CyclingButtonWidget.onOffBuilder(
-                Text.literal("ON"), Text.literal("OFF"))
+                Text.literal("\u00a7a\u0414\u0430"), Text.literal("\u00a7c\u041d\u0435\u0442"))
             .initially(filterDrops)
             .build(fl + (btnW + gap) * 2, y, btnW, 20,
-                Text.literal("Drops"),
+                Text.literal("\u0414\u0440\u043e\u043f"),
                 (btn, val) -> filterDrops = val));
         y += 28;
 
-        // === APPLY BUTTON ===
+        // === APPLY ===
 
         addDrawableChild(ButtonWidget.builder(
-                Text.literal("Apply & Close"),
+                Text.literal("\u00a7a\u041f\u0440\u0438\u043c\u0435\u043d\u0438\u0442\u044c"),
                 btn -> applyAndClose())
             .dimensions(cx - 60, y, 120, 20)
             .build());
@@ -166,21 +166,21 @@ public class PrefsScreen extends Screen {
 
         // Title
         context.drawCenteredTextWithShadow(this.textRenderer, this.title,
-            this.width / 2, 8, 0x00FF00);
+            this.width / 2, 10, 0xFFFFFF);
 
-        // Color preview swatch
-        int swatchSize = 20;
-        int swatchX = this.width / 2 + 110;
-        int swatchY = 24 + 7 * 22 + 26;
+        // Color swatch
+        int sz = 20;
+        int sx = this.width / 2 + 115;
+        int sy = 28 + 7 * 22 + 26;
         int color = (tintA << 24) | (tintR << 16) | (tintG << 8) | tintB;
-        context.fill(swatchX, swatchY, swatchX + swatchSize, swatchY + swatchSize, color);
-        context.drawBorder(swatchX - 1, swatchY - 1, swatchSize + 2, swatchSize + 2, 0xFFAAAAAA);
+        context.fill(sx, sy, sx + sz, sy + sz, color);
+        context.drawBorder(sx - 1, sy - 1, sz + 2, sz + 2, 0xFFAAAAAA);
 
-        // Stealth mode hint
+        // Stealth hint
         if (stealth) {
             context.drawCenteredTextWithShadow(this.textRenderer,
-                Text.literal("Stealth: expanded box hidden visually"),
-                this.width / 2, this.height - 14, 0xFF5555);
+                Text.literal("\u00a76\u0421\u043a\u0440\u044b\u0442\u044b\u0439 \u0440\u0435\u0436\u0438\u043c: \u0445\u0438\u0442\u0431\u043e\u043a\u0441 \u0440\u0430\u0441\u0448\u0438\u0440\u0435\u043d, \u043d\u043e \u0432\u0438\u0437\u0443\u0430\u043b\u044c\u043d\u043e \u043e\u0431\u044b\u0447\u043d\u044b\u0439"),
+                this.width / 2, this.height - 14, 0xFFFFFF);
         }
 
         super.render(context, mouseX, mouseY, delta);
