@@ -27,6 +27,11 @@ public abstract class RaycastExpandMixin {
         double hScale = prefs.getHScale();
         double vScale = prefs.getVScale();
 
-        return box.expand(margin * hScale, margin * vScale, margin * hScale);
+        double halfW = (box.maxX - box.minX) / 2.0;
+        double halfH = (box.maxY - box.minY) / 2.0;
+        double extraH = halfW * (hScale - 1.0);
+        double extraV = halfH * (vScale - 1.0);
+
+        return box.expand(margin + extraH, margin + extraV, margin + extraH);
     }
 }
