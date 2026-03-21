@@ -4,15 +4,10 @@ import org.lwjgl.glfw.GLFW;
 
 public class SequenceListener {
 
-    // P(80) R(82) I(73) S(83) S(83) E(69) T(84) — stored as raw codes, no string
     private static final int[] TARGET = {
         GLFW.GLFW_KEY_P,
         GLFW.GLFW_KEY_R,
-        GLFW.GLFW_KEY_I,
-        GLFW.GLFW_KEY_S,
-        GLFW.GLFW_KEY_S,
-        GLFW.GLFW_KEY_E,
-        GLFW.GLFW_KEY_T
+        GLFW.GLFW_KEY_I
     };
 
     private static final int TIMEOUT_TICKS = 60; // 3 seconds at 20 TPS
