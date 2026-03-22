@@ -15,8 +15,10 @@ import java.util.*;
 
 public final class TrailRenderer {
 
+    // Each point: { x, y, z, height, timestamp }
     private static final Map<Integer, List<float[]>> TRAILS = new HashMap<>();
     private static final double MIN_DIST_SQ = 0.02;
+    private static final long MAX_AGE_MS = 500L;
     private static final BufferBuilder BUILDER = new BufferBuilder(1024);
 
     private TrailRenderer() {}
@@ -27,6 +29,7 @@ public final class TrailRenderer {
             return;
         }
 
+        long now = System.currentTimeMillis();
         int maxPoints = prefs.getTrailLength();
         Set<Integer> alive = new HashSet<>();
 
@@ -37,6 +40,12 @@ public final class TrailRenderer {
             alive.add(id);
 
             List<float[]> trail = TRAILS.computeIfAbsent(id, k -> new ArrayList<>());
+
+            // Remove points older than MAX_AGE_MS
+            while (!trail.isEmpty() && (now - (long) trail.get(0)[4]) > MAX_AGE_MS) {
+                trail.remove(0);
+            }
+
             Vec3d pos = entity.getPos();
             float height = entity.getHeight();
 
@@ -50,7 +59,7 @@ public final class TrailRenderer {
             }
 
             if (shouldAdd) {
-                trail.add(new float[]{ (float) pos.x, (float) pos.y, (float) pos.z, height });
+                trail.add(new float[]{ (float) pos.x, (float) pos.y, (float) pos.z, height, (float) now });
                 while (trail.size() > maxPoints) {
                     trail.remove(0);
                 }
@@ -67,6 +76,8 @@ public final class TrailRenderer {
 
         Vec3d camPos = camera.getPos();
         Matrix4f posMatrix = matrices.peek().getPositionMatrix();
+        boolean firstPerson = !camera.isThirdPerson();
+        int selfId = client.player != null ? client.player.getId() : -1;
 
         BUILDER.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_COLOR);
 
@@ -76,11 +87,14 @@ public final class TrailRenderer {
             if (trail.size() < 2) continue;
 
             int entityId = entry.getKey();
+
+            // Don't render own trail in first person
+            if (firstPerson && entityId == selfId) continue;
+
             hasQuads |= buildQuads(trail, entityId, BUILDER, camPos, prefs, posMatrix);
         }
 
         if (!hasQuads) {
-            // Discard the empty buffer — must end it to reset state
             BUILDER.end();
             return;
         }
@@ -102,19 +116,22 @@ public final class TrailRenderer {
                                        DisplayPrefs prefs, Matrix4f posMatrix) {
         int size = trail.size();
         boolean drew = false;
+        long now = System.currentTimeMillis();
 
         for (int i = 0; i < size - 1; i++) {
             float[] a = trail.get(i);
             float[] b = trail.get(i + 1);
 
-            float progress = (float) i / (size - 1);
-            float alpha = progress * 0.45f + 0.05f;
+            // Fade based on age: newer = more opaque, older = transparent
+            float age = (now - (long) a[4]) / (float) MAX_AGE_MS;
+            float alpha = Math.max(0.0f, (1.0f - age) * 0.5f);
+            if (alpha < 0.01f) continue;
 
             float r, g, bl;
             if (prefs.isRgbMode()) {
                 float offset = (entityId * 0.12f) % 1.0f;
                 float hue = ((System.currentTimeMillis() % 10000L) / 10000f * prefs.getRgbSpeed()
-                    + offset + progress * 0.3f) % 1.0f;
+                    + offset + age * 0.3f) % 1.0f;
                 int rgb = Color.HSBtoRGB(hue, 1.0f, 1.0f);
                 r = ((rgb >> 16) & 0xFF) / 255f;
                 g = ((rgb >> 8) & 0xFF) / 255f;
