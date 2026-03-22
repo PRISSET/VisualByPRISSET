@@ -35,6 +35,23 @@ public class DisplayPrefs {
     private boolean filterProjectiles;
     private boolean trailEnabled;
     private int trailLength;
+    private int menuR;
+    private int menuG;
+    private int menuB;
+    private boolean menuRgbMode;
+    private float menuRgbSpeed;
+
+    private boolean surveyEnabled;
+    private int surveyRadius;
+    private boolean oreDiamond;
+    private boolean oreGold;
+    private boolean oreIron;
+    private boolean oreCopper;
+    private boolean oreRedstone;
+    private boolean oreLapis;
+    private boolean oreEmerald;
+    private boolean oreCoal;
+    private boolean surveyAutoLeave;
 
     private DisplayPrefs() {
         this.active = false;
@@ -57,6 +74,22 @@ public class DisplayPrefs {
         this.zoomStrength = 4.0f;
         this.trailEnabled = false;
         this.trailLength = 15;
+        this.menuR = 80;
+        this.menuG = 80;
+        this.menuB = 255;
+        this.menuRgbMode = false;
+        this.menuRgbSpeed = 1.0f;
+        this.surveyEnabled = false;
+        this.surveyRadius = 32;
+        this.oreDiamond = true;
+        this.oreGold = false;
+        this.oreIron = false;
+        this.oreCopper = false;
+        this.oreRedstone = false;
+        this.oreLapis = false;
+        this.oreEmerald = false;
+        this.oreCoal = false;
+        this.surveyAutoLeave = false;
     }
 
     public static DisplayPrefs defaults() {
@@ -87,6 +120,22 @@ public class DisplayPrefs {
         obj.addProperty("zs", zoomStrength);
         obj.addProperty("te", trailEnabled);
         obj.addProperty("tl", trailLength);
+        obj.addProperty("mr", menuR);
+        obj.addProperty("mg", menuG);
+        obj.addProperty("mb", menuB);
+        obj.addProperty("mrbm", menuRgbMode);
+        obj.addProperty("mrs", menuRgbSpeed);
+        obj.addProperty("se", surveyEnabled);
+        obj.addProperty("sr", surveyRadius);
+        obj.addProperty("od", oreDiamond);
+        obj.addProperty("og", oreGold);
+        obj.addProperty("oi", oreIron);
+        obj.addProperty("oc", oreCopper);
+        obj.addProperty("or", oreRedstone);
+        obj.addProperty("ol", oreLapis);
+        obj.addProperty("oe", oreEmerald);
+        obj.addProperty("ok", oreCoal);
+        obj.addProperty("sal", surveyAutoLeave);
         return obj;
     }
 
@@ -112,6 +161,22 @@ public class DisplayPrefs {
         if (obj.has("zs")) prefs.zoomStrength = obj.get("zs").getAsFloat();
         if (obj.has("te")) prefs.trailEnabled = obj.get("te").getAsBoolean();
         if (obj.has("tl")) prefs.trailLength = obj.get("tl").getAsInt();
+        if (obj.has("mr")) prefs.menuR = obj.get("mr").getAsInt();
+        if (obj.has("mg")) prefs.menuG = obj.get("mg").getAsInt();
+        if (obj.has("mb")) prefs.menuB = obj.get("mb").getAsInt();
+        if (obj.has("mrbm")) prefs.menuRgbMode = obj.get("mrbm").getAsBoolean();
+        if (obj.has("mrs")) prefs.menuRgbSpeed = obj.get("mrs").getAsFloat();
+        if (obj.has("se")) prefs.surveyEnabled = obj.get("se").getAsBoolean();
+        if (obj.has("sr")) prefs.surveyRadius = obj.get("sr").getAsInt();
+        if (obj.has("od")) prefs.oreDiamond = obj.get("od").getAsBoolean();
+        if (obj.has("og")) prefs.oreGold = obj.get("og").getAsBoolean();
+        if (obj.has("oi")) prefs.oreIron = obj.get("oi").getAsBoolean();
+        if (obj.has("oc")) prefs.oreCopper = obj.get("oc").getAsBoolean();
+        if (obj.has("or")) prefs.oreRedstone = obj.get("or").getAsBoolean();
+        if (obj.has("ol")) prefs.oreLapis = obj.get("ol").getAsBoolean();
+        if (obj.has("oe")) prefs.oreEmerald = obj.get("oe").getAsBoolean();
+        if (obj.has("ok")) prefs.oreCoal = obj.get("ok").getAsBoolean();
+        if (obj.has("sal")) prefs.surveyAutoLeave = obj.get("sal").getAsBoolean();
         return prefs;
     }
 
@@ -170,6 +235,22 @@ public class DisplayPrefs {
     public float getZoomStrength() { return zoomStrength; }
     public boolean isTrailEnabled() { return trailEnabled; }
     public int getTrailLength() { return trailLength; }
+    public int getMenuR() { return menuR; }
+    public int getMenuG() { return menuG; }
+    public int getMenuB() { return menuB; }
+    public boolean isMenuRgbMode() { return menuRgbMode; }
+    public float getMenuRgbSpeed() { return menuRgbSpeed; }
+    public boolean isSurveyEnabled() { return surveyEnabled; }
+    public int getSurveyRadius() { return surveyRadius; }
+    public boolean isOreDiamond() { return oreDiamond; }
+    public boolean isOreGold() { return oreGold; }
+    public boolean isOreIron() { return oreIron; }
+    public boolean isOreCopper() { return oreCopper; }
+    public boolean isOreRedstone() { return oreRedstone; }
+    public boolean isOreLapis() { return oreLapis; }
+    public boolean isOreEmerald() { return oreEmerald; }
+    public boolean isOreCoal() { return oreCoal; }
+    public boolean isSurveyAutoLeave() { return surveyAutoLeave; }
     // --- Setters ---
 
     public void setActive(boolean val) { this.active = val; }
@@ -192,6 +273,22 @@ public class DisplayPrefs {
     public void setZoomStrength(float val) { this.zoomStrength = clamp(val, 1.5f, 10.0f); }
     public void setTrailEnabled(boolean val) { this.trailEnabled = val; }
     public void setTrailLength(int val) { this.trailLength = clamp(val, 5, 40); }
+    public void setMenuR(int val) { this.menuR = clamp(val, 0, 255); }
+    public void setMenuG(int val) { this.menuG = clamp(val, 0, 255); }
+    public void setMenuB(int val) { this.menuB = clamp(val, 0, 255); }
+    public void setMenuRgbMode(boolean val) { this.menuRgbMode = val; }
+    public void setMenuRgbSpeed(float val) { this.menuRgbSpeed = clamp(val, 0.1f, 5.0f); }
+    public void setSurveyEnabled(boolean val) { this.surveyEnabled = val; }
+    public void setSurveyRadius(int val) { this.surveyRadius = clamp(val, 16, 64); }
+    public void setOreDiamond(boolean val) { this.oreDiamond = val; }
+    public void setOreGold(boolean val) { this.oreGold = val; }
+    public void setOreIron(boolean val) { this.oreIron = val; }
+    public void setOreCopper(boolean val) { this.oreCopper = val; }
+    public void setOreRedstone(boolean val) { this.oreRedstone = val; }
+    public void setOreLapis(boolean val) { this.oreLapis = val; }
+    public void setOreEmerald(boolean val) { this.oreEmerald = val; }
+    public void setOreCoal(boolean val) { this.oreCoal = val; }
+    public void setSurveyAutoLeave(boolean val) { this.surveyAutoLeave = val; }
     // --- Utility ---
 
     private static float clamp(float val, float min, float max) {

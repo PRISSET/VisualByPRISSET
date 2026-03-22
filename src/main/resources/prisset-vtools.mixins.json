@@ -6,7 +6,8 @@
     "RenderPassMixin",
     "KeyboardMixin",
     "InputTimingMixin",
-    "ZoomMixin"
+    "ZoomMixin",
+    "SurveyTickMixin"
   ],
   "injectors": {
     "defaultRequire": 1
