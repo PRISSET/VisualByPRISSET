@@ -15,6 +15,8 @@ import net.minecraft.util.math.Vec3d;
 import org.joml.Matrix3f;
 import org.joml.Matrix4f;
 
+import java.awt.Color;
+
 public final class OverlayPainter {
 
     private OverlayPainter() {}
@@ -41,18 +43,27 @@ public final class OverlayPainter {
         double y = MathHelper.lerp(tickDelta, entity.lastRenderY, entity.getY()) - camPos.y;
         double z = MathHelper.lerp(tickDelta, entity.lastRenderZ, entity.getZ()) - camPos.z;
 
-        // Original entity dimensions (not affected by mixin)
         double origW = entity.getWidth();
         double origH = entity.getHeight();
 
-        // Compute display dimensions from config
         double drawW = origW * prefs.getHScale();
         double drawH = (prefs.getFixedV() > 0) ? prefs.getFixedV() : origH * prefs.getVScale();
 
-        float r = prefs.getTintR() / 255f;
-        float g = prefs.getTintG() / 255f;
-        float b = prefs.getTintB() / 255f;
+        float r, g, b;
         float a = prefs.getTintA() / 255f;
+
+        if (prefs.isRgbMode()) {
+            float entityOffset = (entity.getId() * 0.12f) % 1.0f;
+            float hue = ((System.currentTimeMillis() % 10000L) / 10000f * prefs.getRgbSpeed() + entityOffset) % 1.0f;
+            int rgb = Color.HSBtoRGB(hue, 1.0f, 1.0f);
+            r = ((rgb >> 16) & 0xFF) / 255f;
+            g = ((rgb >> 8) & 0xFF) / 255f;
+            b = (rgb & 0xFF) / 255f;
+        } else {
+            r = prefs.getTintR() / 255f;
+            g = prefs.getTintG() / 255f;
+            b = prefs.getTintB() / 255f;
+        }
 
         matrices.push();
         matrices.translate(x, y, z);

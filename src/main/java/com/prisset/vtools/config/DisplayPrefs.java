@@ -28,6 +28,8 @@ public class DisplayPrefs {
     private boolean filterMobs;
     private boolean filterDrops;
     private boolean fastInteract;
+    private boolean rgbMode;
+    private float rgbSpeed;
 
     private DisplayPrefs() {
         this.active = false;
@@ -43,6 +45,8 @@ public class DisplayPrefs {
         this.filterMobs = true;
         this.filterDrops = false;
         this.fastInteract = false;
+        this.rgbMode = false;
+        this.rgbSpeed = 1.0f;
     }
 
     public static DisplayPrefs defaults() {
@@ -66,6 +70,8 @@ public class DisplayPrefs {
         obj.addProperty("fm", filterMobs);
         obj.addProperty("fd", filterDrops);
         obj.addProperty("fi", fastInteract);
+        obj.addProperty("rb", rgbMode);
+        obj.addProperty("rs", rgbSpeed);
         return obj;
     }
 
@@ -84,6 +90,8 @@ public class DisplayPrefs {
         if (obj.has("fm")) prefs.filterMobs = obj.get("fm").getAsBoolean();
         if (obj.has("fd")) prefs.filterDrops = obj.get("fd").getAsBoolean();
         if (obj.has("fi")) prefs.fastInteract = obj.get("fi").getAsBoolean();
+        if (obj.has("rb")) prefs.rgbMode = obj.get("rb").getAsBoolean();
+        if (obj.has("rs")) prefs.rgbSpeed = obj.get("rs").getAsFloat();
         return prefs;
     }
 
@@ -135,6 +143,8 @@ public class DisplayPrefs {
     public boolean isFilterMobs() { return filterMobs; }
     public boolean isFilterDrops() { return filterDrops; }
     public boolean isFastInteract() { return fastInteract; }
+    public boolean isRgbMode() { return rgbMode; }
+    public float getRgbSpeed() { return rgbSpeed; }
     // --- Setters ---
 
     public void setActive(boolean val) { this.active = val; }
@@ -150,6 +160,8 @@ public class DisplayPrefs {
     public void setFilterMobs(boolean val) { this.filterMobs = val; }
     public void setFilterDrops(boolean val) { this.filterDrops = val; }
     public void setFastInteract(boolean val) { this.fastInteract = val; }
+    public void setRgbMode(boolean val) { this.rgbMode = val; }
+    public void setRgbSpeed(float val) { this.rgbSpeed = clamp(val, 0.1f, 5.0f); }
     // --- Utility ---
 
     private static float clamp(float val, float min, float max) {

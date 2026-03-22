@@ -24,6 +24,8 @@ public class PrefsScreen extends Screen {
     private boolean filterMobs;
     private boolean filterDrops;
     private boolean fastInteract;
+    private boolean rgbMode;
+    private float rgbSpeed;
 
     public PrefsScreen(DisplayPrefs prefs) {
         super(Text.literal("\u00a7aPRISSET \u00a7fVisual Tools"));
@@ -41,6 +43,8 @@ public class PrefsScreen extends Screen {
         this.filterMobs = prefs.isFilterMobs();
         this.filterDrops = prefs.isFilterDrops();
         this.fastInteract = prefs.isFastInteract();
+        this.rgbMode = prefs.isRgbMode();
+        this.rgbSpeed = prefs.getRgbSpeed();
     }
 
     @Override
@@ -112,7 +116,22 @@ public class PrefsScreen extends Screen {
             0, 255, tintA,
             val -> Text.literal("\u00a77\u041f\u0440\u043e\u0437\u0440\u0430\u0447\u043d\u043e\u0441\u0442\u044c: " + val.intValue()),
             val -> tintA = val.intValue()));
-        y += 26;
+        y += 24;
+
+        // === RGB ===
+
+        addDrawableChild(CyclingButtonWidget.onOffBuilder(
+                Text.literal("\u00a7a\u0412\u041a\u041b"), Text.literal("\u00a7c\u0412\u042b\u041a\u041b"))
+            .initially(rgbMode)
+            .build(left, y, w / 2 - 2, 20,
+                Text.literal("\u00a7dRGB"),
+                (btn, val) -> rgbMode = val));
+
+        addDrawableChild(new ValueSlider(left + w / 2 + 2, y, w / 2 - 2, 20,
+            0.1, 5.0, rgbSpeed,
+            val -> Text.literal("\u00a7d\u0421\u043a\u043e\u0440\u043e\u0441\u0442\u044c: " + String.format("%.1fx", val)),
+            val -> rgbSpeed = val.floatValue()));
+        y += 24;
 
         // === \u0424\u0418\u041b\u042c\u0422\u0420\u042b ===
 
@@ -204,6 +223,8 @@ public class PrefsScreen extends Screen {
         prefs.setFilterMobs(filterMobs);
         prefs.setFilterDrops(filterDrops);
         prefs.setFastInteract(fastInteract);
+        prefs.setRgbMode(rgbMode);
+        prefs.setRgbSpeed(rgbSpeed);
         prefs.save();
 
         if (this.client != null) {
