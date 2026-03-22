@@ -16,18 +16,32 @@ public abstract class InputTimingMixin {
     @Shadow private int itemUseCooldown;
     @Shadow protected int attackCooldown;
 
-    @Inject(method = "doItemUse", at = @At("HEAD"))
-    private void vtools$clearUseCooldown(CallbackInfo ci) {
+    private boolean vtools$shouldClear() {
         DisplayPrefs prefs = VToolsMod.getPrefs();
-        if (prefs != null && prefs.isActive() && prefs.isFastInteract()) {
+        return prefs != null && prefs.isActive() && prefs.isFastInteract();
+    }
+
+    // Reset after doItemUse sets it to 4
+    @Inject(method = "doItemUse", at = @At("RETURN"))
+    private void vtools$clearUseCooldown(CallbackInfo ci) {
+        if (vtools$shouldClear()) {
             this.itemUseCooldown = 0;
         }
     }
 
-    @Inject(method = "doAttack", at = @At("HEAD"))
+    // Reset after doAttack sets it to 10
+    @Inject(method = "doAttack", at = @At("RETURN"))
     private void vtools$clearAttackCooldown(CallbackInfoReturnable<Boolean> cir) {
-        DisplayPrefs prefs = VToolsMod.getPrefs();
-        if (prefs != null && prefs.isActive() && prefs.isFastInteract()) {
+        if (vtools$shouldClear()) {
+            this.attackCooldown = 0;
+        }
+    }
+
+    // Also reset every tick so held-button path never sees cooldown > 0
+    @Inject(method = "tick", at = @At("HEAD"))
+    private void vtools$clearCooldownsOnTick(CallbackInfo ci) {
+        if (vtools$shouldClear()) {
+            this.itemUseCooldown = 0;
             this.attackCooldown = 0;
         }
     }
