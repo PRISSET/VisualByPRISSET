@@ -43,11 +43,8 @@ public final class OverlayPainter {
         double y = MathHelper.lerp(tickDelta, entity.lastRenderY, entity.getY()) - camPos.y;
         double z = MathHelper.lerp(tickDelta, entity.lastRenderZ, entity.getZ()) - camPos.z;
 
-        double origW = entity.getWidth();
-        double origH = entity.getHeight();
-
-        double drawW = origW * prefs.getHScale();
-        double drawH = (prefs.getFixedV() > 0) ? prefs.getFixedV() : origH * prefs.getVScale();
+        double drawW = entity.getWidth();
+        double drawH = entity.getHeight();
 
         float r, g, b;
         float a = prefs.getTintA() / 255f;

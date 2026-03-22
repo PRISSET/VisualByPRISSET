@@ -13,38 +13,30 @@ public class PrefsScreen extends Screen {
 
     private boolean active;
     private boolean debugOnly;
-    private float vScale;
-    private float hScale;
-    private float fixedV;
     private int tintR;
     private int tintG;
     private int tintB;
     private int tintA;
+    private boolean rgbMode;
+    private float rgbSpeed;
     private boolean filterPlayers;
     private boolean filterMobs;
     private boolean filterDrops;
-    private boolean fastInteract;
-    private boolean rgbMode;
-    private float rgbSpeed;
 
     public PrefsScreen(DisplayPrefs prefs) {
         super(Text.literal("\u00a7aPRISSET \u00a7fVisual Tools"));
         this.prefs = prefs;
         this.active = prefs.isActive();
         this.debugOnly = prefs.isDebugOnly();
-        this.vScale = prefs.getVScale();
-        this.hScale = prefs.getHScale();
-        this.fixedV = prefs.getFixedV();
         this.tintR = prefs.getTintR();
         this.tintG = prefs.getTintG();
         this.tintB = prefs.getTintB();
         this.tintA = prefs.getTintA();
+        this.rgbMode = prefs.isRgbMode();
+        this.rgbSpeed = prefs.getRgbSpeed();
         this.filterPlayers = prefs.isFilterPlayers();
         this.filterMobs = prefs.isFilterMobs();
         this.filterDrops = prefs.isFilterDrops();
-        this.fastInteract = prefs.isFastInteract();
-        this.rgbMode = prefs.isRgbMode();
-        this.rgbSpeed = prefs.getRgbSpeed();
     }
 
     @Override
@@ -54,7 +46,7 @@ public class PrefsScreen extends Screen {
         int left = cx - w / 2;
         int y = 28;
 
-        // === \u041e\u0421\u041d\u041e\u0412\u041d\u041e\u0415 ===
+        // === MAIN ===
 
         addDrawableChild(CyclingButtonWidget.onOffBuilder(
                 Text.literal("\u00a7a\u0412\u041a\u041b"), Text.literal("\u00a7c\u0412\u042b\u041a\u041b"))
@@ -72,27 +64,7 @@ public class PrefsScreen extends Screen {
                 (btn, val) -> debugOnly = val));
         y += 26;
 
-        // === \u0420\u0410\u0417\u041c\u0415\u0420\u042b ===
-
-        addDrawableChild(new ValueSlider(left, y, w, 20,
-            0.5, 5.0, vScale,
-            val -> Text.literal("\u0412\u044b\u0441\u043e\u0442\u0430: " + String.format("%.1fx", val)),
-            val -> vScale = val.floatValue()));
-        y += 22;
-
-        addDrawableChild(new ValueSlider(left, y, w, 20,
-            0.5, 5.0, hScale,
-            val -> Text.literal("\u0428\u0438\u0440\u0438\u043d\u0430: " + String.format("%.1fx", val)),
-            val -> hScale = val.floatValue()));
-        y += 22;
-
-        addDrawableChild(new ValueSlider(left, y, w, 20,
-            0.0, 10.0, fixedV < 0 ? 0.0 : fixedV,
-            val -> Text.literal("\u0424\u0438\u043a\u0441. \u0432\u044b\u0441\u043e\u0442\u0430: " + (val < 0.05 ? "\u0410\u0432\u0442\u043e" : String.format("%.1f", val))),
-            val -> fixedV = val < 0.05f ? -1.0f : val.floatValue()));
-        y += 26;
-
-        // === \u0426\u0412\u0415\u0422 ===
+        // === COLOR ===
 
         addDrawableChild(new ValueSlider(left, y, w, 20,
             0, 255, tintR,
@@ -133,7 +105,7 @@ public class PrefsScreen extends Screen {
             val -> rgbSpeed = val.floatValue()));
         y += 24;
 
-        // === \u0424\u0418\u041b\u042c\u0422\u0420\u042b ===
+        // === FILTERS ===
 
         int btnW = 66;
         int gap = 4;
@@ -160,19 +132,9 @@ public class PrefsScreen extends Screen {
             .build(fl + (btnW + gap) * 2, y, btnW, 20,
                 Text.literal("\u0414\u0440\u043e\u043f"),
                 (btn, val) -> filterDrops = val));
-        y += 26;
+        y += 28;
 
-        // === FAST INTERACT ===
-
-        addDrawableChild(CyclingButtonWidget.onOffBuilder(
-                Text.literal("\u00a7a\u0412\u041a\u041b"), Text.literal("\u00a7c\u0412\u042b\u041a\u041b"))
-            .initially(fastInteract)
-            .build(left, y, w, 20,
-                Text.literal("\u00a7e\u0411\u044b\u0441\u0442\u0440\u044b\u0439 \u043a\u043b\u0438\u043a"),
-                (btn, val) -> fastInteract = val));
-        y += 26;
-
-        // === \u041f\u0420\u0418\u041c\u0415\u041d\u0418\u0422\u042c ===
+        // === APPLY ===
 
         addDrawableChild(ButtonWidget.builder(
                 Text.literal("\u00a7a\u041f\u0440\u0438\u043c\u0435\u043d\u0438\u0442\u044c"),
@@ -191,15 +153,10 @@ public class PrefsScreen extends Screen {
         // Color swatch
         int sz = 20;
         int sx = this.width / 2 + 115;
-        int sy = 28 + 6 * 22 + 26;
+        int sy = 28 + 2 * 22 + 26;
         int color = (tintA << 24) | (tintR << 16) | (tintG << 8) | tintB;
         context.fill(sx, sy, sx + sz, sy + sz, color);
         context.drawBorder(sx - 1, sy - 1, sz + 2, sz + 2, 0xFFAAAAAA);
-
-        // Hint
-        context.drawCenteredTextWithShadow(this.textRenderer,
-            Text.literal("\u00a77\u0423\u0434\u0430\u0440\u044b \u0440\u0430\u0431\u043e\u0442\u0430\u044e\u0442 \u0442\u043e\u043b\u044c\u043a\u043e \u0434\u043e 3.0 \u0431\u043b\u043e\u043a\u043e\u0432"),
-            this.width / 2, this.height - 14, 0xFFFFFF);
 
         super.render(context, mouseX, mouseY, delta);
     }
@@ -212,19 +169,15 @@ public class PrefsScreen extends Screen {
     private void applyAndClose() {
         prefs.setActive(active);
         prefs.setDebugOnly(debugOnly);
-        prefs.setVScale(vScale);
-        prefs.setHScale(hScale);
-        prefs.setFixedV(fixedV);
         prefs.setTintR(tintR);
         prefs.setTintG(tintG);
         prefs.setTintB(tintB);
         prefs.setTintA(tintA);
+        prefs.setRgbMode(rgbMode);
+        prefs.setRgbSpeed(rgbSpeed);
         prefs.setFilterPlayers(filterPlayers);
         prefs.setFilterMobs(filterMobs);
         prefs.setFilterDrops(filterDrops);
-        prefs.setFastInteract(fastInteract);
-        prefs.setRgbMode(rgbMode);
-        prefs.setRgbSpeed(rgbSpeed);
         prefs.save();
 
         if (this.client != null) {

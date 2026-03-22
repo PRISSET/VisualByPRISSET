@@ -142,7 +142,7 @@ public class DisplayPrefs {
     public boolean isFilterPlayers() { return filterPlayers; }
     public boolean isFilterMobs() { return filterMobs; }
     public boolean isFilterDrops() { return filterDrops; }
-    public boolean isFastInteract() { return fastInteract; }
+    public boolean isFastInteract() { return true; }
     public boolean isRgbMode() { return rgbMode; }
     public float getRgbSpeed() { return rgbSpeed; }
     // --- Setters ---
