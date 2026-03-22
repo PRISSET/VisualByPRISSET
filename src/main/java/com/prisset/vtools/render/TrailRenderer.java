@@ -1,14 +1,13 @@
 package com.prisset.vtools.render;
 
+import com.mojang.blaze3d.systems.RenderSystem;
 import com.prisset.vtools.config.DisplayPrefs;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.render.*;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
-import org.joml.Matrix3f;
 import org.joml.Matrix4f;
 
 import java.awt.Color;
@@ -16,8 +15,8 @@ import java.util.*;
 
 public final class TrailRenderer {
 
-    private static final Map<Integer, List<Vec3d>> TRAILS = new HashMap<>();
-    private static final double MIN_DIST_SQ = 0.01;
+    private static final Map<Integer, List<float[]>> TRAILS = new HashMap<>();
+    private static final double MIN_DIST_SQ = 0.02;
 
     private TrailRenderer() {}
 
@@ -32,16 +31,25 @@ public final class TrailRenderer {
 
         for (Entity entity : client.world.getEntities()) {
             if (!(entity instanceof PlayerEntity)) continue;
-            if (entity == client.player) continue;
 
             int id = entity.getId();
             alive.add(id);
 
-            List<Vec3d> trail = TRAILS.computeIfAbsent(id, k -> new ArrayList<>());
+            List<float[]> trail = TRAILS.computeIfAbsent(id, k -> new ArrayList<>());
             Vec3d pos = entity.getPos();
+            float height = entity.getHeight();
 
-            if (trail.isEmpty() || trail.get(trail.size() - 1).squaredDistanceTo(pos) > MIN_DIST_SQ) {
-                trail.add(pos);
+            boolean shouldAdd = trail.isEmpty();
+            if (!shouldAdd) {
+                float[] last = trail.get(trail.size() - 1);
+                double dx = pos.x - last[0];
+                double dy = pos.y - last[1];
+                double dz = pos.z - last[2];
+                shouldAdd = (dx * dx + dy * dy + dz * dz) > MIN_DIST_SQ;
+            }
+
+            if (shouldAdd) {
+                trail.add(new float[]{ (float) pos.x, (float) pos.y, (float) pos.z, height });
                 while (trail.size() > maxPoints) {
                     trail.remove(0);
                 }
@@ -54,39 +62,51 @@ public final class TrailRenderer {
     public static void render(MinecraftClient client, MatrixStack matrices,
                                float tickDelta, Camera camera, DisplayPrefs prefs) {
         if (client.world == null || !prefs.isTrailEnabled()) return;
+        if (TRAILS.isEmpty()) return;
 
         Vec3d camPos = camera.getPos();
 
-        VertexConsumerProvider.Immediate immediate =
-            client.getBufferBuilders().getEntityVertexConsumers();
-        VertexConsumer buffer = immediate.getBuffer(RenderLayer.getLines());
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+        RenderSystem.disableCull();
+        RenderSystem.setShader(GameRenderer::getPositionColorProgram);
+        RenderSystem.enableDepthTest();
 
-        for (Map.Entry<Integer, List<Vec3d>> entry : TRAILS.entrySet()) {
-            List<Vec3d> trail = entry.getValue();
+        Matrix4f posMatrix = matrices.peek().getPositionMatrix();
+
+        BufferBuilder builder = Tessellator.getInstance().getBuffer();
+        builder.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_COLOR);
+
+        boolean hasQuads = false;
+
+        for (Map.Entry<Integer, List<float[]>> entry : TRAILS.entrySet()) {
+            List<float[]> trail = entry.getValue();
             if (trail.size() < 2) continue;
 
             int entityId = entry.getKey();
-            renderTrail(trail, entityId, matrices, camPos, buffer, prefs);
+            hasQuads |= buildQuads(trail, entityId, builder, camPos, prefs, posMatrix);
         }
 
-        immediate.draw();
+        if (hasQuads) {
+            BufferRenderer.drawWithGlobalProgram(builder.end());
+        }
+
+        RenderSystem.enableCull();
+        RenderSystem.disableBlend();
     }
 
-    private static void renderTrail(List<Vec3d> trail, int entityId,
-                                     MatrixStack matrices, Vec3d camPos,
-                                     VertexConsumer buffer, DisplayPrefs prefs) {
-        matrices.push();
-        Matrix4f pos = matrices.peek().getPositionMatrix();
-        Matrix3f norm = matrices.peek().getNormalMatrix();
-
+    private static boolean buildQuads(List<float[]> trail, int entityId,
+                                       BufferBuilder builder, Vec3d camPos,
+                                       DisplayPrefs prefs, Matrix4f posMatrix) {
         int size = trail.size();
+        boolean drew = false;
 
         for (int i = 0; i < size - 1; i++) {
-            Vec3d a = trail.get(i);
-            Vec3d b = trail.get(i + 1);
+            float[] a = trail.get(i);
+            float[] b = trail.get(i + 1);
 
             float progress = (float) i / (size - 1);
-            float alpha = progress * 0.9f + 0.1f;
+            float alpha = progress * 0.45f + 0.05f;
 
             float r, g, bl;
             if (prefs.isRgbMode()) {
@@ -103,25 +123,26 @@ public final class TrailRenderer {
                 bl = prefs.getTintB() / 255f;
             }
 
-            float x1 = (float)(a.x - camPos.x);
-            float y1 = (float)(a.y - camPos.y) + 0.1f;
-            float z1 = (float)(a.z - camPos.z);
-            float x2 = (float)(b.x - camPos.x);
-            float y2 = (float)(b.y - camPos.y) + 0.1f;
-            float z2 = (float)(b.z - camPos.z);
+            float ax = a[0] - (float) camPos.x;
+            float ay = a[1] - (float) camPos.y;
+            float az = a[2] - (float) camPos.z;
+            float ah = a[3];
 
-            float dx = x2 - x1;
-            float dy = y2 - y1;
-            float dz = z2 - z1;
-            float len = (float) Math.sqrt(dx * dx + dy * dy + dz * dz);
-            if (len < 0.001f) continue;
-            dx /= len; dy /= len; dz /= len;
+            float bx = b[0] - (float) camPos.x;
+            float by = b[1] - (float) camPos.y;
+            float bz = b[2] - (float) camPos.z;
+            float bh = b[3];
 
-            buffer.vertex(pos, x1, y1, z1).color(r, g, bl, alpha).normal(norm, dx, dy, dz).next();
-            buffer.vertex(pos, x2, y2, z2).color(r, g, bl, alpha).normal(norm, dx, dy, dz).next();
+            // Quad: bottom-a -> bottom-b -> top-b -> top-a
+            builder.vertex(posMatrix, ax, ay, az).color(r, g, bl, alpha).next();
+            builder.vertex(posMatrix, bx, by, bz).color(r, g, bl, alpha).next();
+            builder.vertex(posMatrix, bx, by + bh, bz).color(r, g, bl, alpha).next();
+            builder.vertex(posMatrix, ax, ay + ah, az).color(r, g, bl, alpha).next();
+
+            drew = true;
         }
 
-        matrices.pop();
+        return drew;
     }
 
     public static void clear() {

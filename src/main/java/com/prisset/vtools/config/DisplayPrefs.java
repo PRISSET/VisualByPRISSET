@@ -56,7 +56,7 @@ public class DisplayPrefs {
         this.healthBars = true;
         this.zoomStrength = 4.0f;
         this.trailEnabled = false;
-        this.trailLength = 60;
+        this.trailLength = 15;
     }
 
     public static DisplayPrefs defaults() {
@@ -191,7 +191,7 @@ public class DisplayPrefs {
     public void setHealthBars(boolean val) { this.healthBars = val; }
     public void setZoomStrength(float val) { this.zoomStrength = clamp(val, 1.5f, 10.0f); }
     public void setTrailEnabled(boolean val) { this.trailEnabled = val; }
-    public void setTrailLength(int val) { this.trailLength = clamp(val, 10, 200); }
+    public void setTrailLength(int val) { this.trailLength = clamp(val, 5, 40); }
     // --- Utility ---
 
     private static float clamp(float val, float min, float max) {

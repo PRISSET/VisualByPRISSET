@@ -143,7 +143,7 @@ public class PrefsScreen extends Screen {
                 (btn, val) -> trailEnabled = val));
 
         addDrawableChild(new ValueSlider(left + w / 2 + 2, y, w / 2 - 2, 20,
-            10, 200, trailLength,
+            5, 40, trailLength,
             val -> Text.literal("\u00a7e\u0414\u043b\u0438\u043d\u0430: " + val.intValue()),
             val -> trailLength = val.intValue()));
         y += 24;
