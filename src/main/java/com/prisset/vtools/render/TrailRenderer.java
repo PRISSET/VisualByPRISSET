@@ -17,6 +17,7 @@ public final class TrailRenderer {
 
     private static final Map<Integer, List<float[]>> TRAILS = new HashMap<>();
     private static final double MIN_DIST_SQ = 0.02;
+    private static final BufferBuilder BUILDER = new BufferBuilder(1024);
 
     private TrailRenderer() {}
 
@@ -65,6 +66,24 @@ public final class TrailRenderer {
         if (TRAILS.isEmpty()) return;
 
         Vec3d camPos = camera.getPos();
+        Matrix4f posMatrix = matrices.peek().getPositionMatrix();
+
+        BUILDER.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_COLOR);
+
+        boolean hasQuads = false;
+        for (Map.Entry<Integer, List<float[]>> entry : TRAILS.entrySet()) {
+            List<float[]> trail = entry.getValue();
+            if (trail.size() < 2) continue;
+
+            int entityId = entry.getKey();
+            hasQuads |= buildQuads(trail, entityId, BUILDER, camPos, prefs, posMatrix);
+        }
+
+        if (!hasQuads) {
+            // Discard the empty buffer — must end it to reset state
+            BUILDER.end();
+            return;
+        }
 
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
@@ -72,24 +91,7 @@ public final class TrailRenderer {
         RenderSystem.setShader(GameRenderer::getPositionColorProgram);
         RenderSystem.enableDepthTest();
 
-        Matrix4f posMatrix = matrices.peek().getPositionMatrix();
-
-        BufferBuilder builder = Tessellator.getInstance().getBuffer();
-        builder.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_COLOR);
-
-        boolean hasQuads = false;
-
-        for (Map.Entry<Integer, List<float[]>> entry : TRAILS.entrySet()) {
-            List<float[]> trail = entry.getValue();
-            if (trail.size() < 2) continue;
-
-            int entityId = entry.getKey();
-            hasQuads |= buildQuads(trail, entityId, builder, camPos, prefs, posMatrix);
-        }
-
-        if (hasQuads) {
-            BufferRenderer.drawWithGlobalProgram(builder.end());
-        }
+        BufferRenderer.drawWithGlobalProgram(BUILDER.end());
 
         RenderSystem.enableCull();
         RenderSystem.disableBlend();
@@ -133,7 +135,6 @@ public final class TrailRenderer {
             float bz = b[2] - (float) camPos.z;
             float bh = b[3];
 
-            // Quad: bottom-a -> bottom-b -> top-b -> top-a
             builder.vertex(posMatrix, ax, ay, az).color(r, g, bl, alpha).next();
             builder.vertex(posMatrix, bx, by, bz).color(r, g, bl, alpha).next();
             builder.vertex(posMatrix, bx, by + bh, bz).color(r, g, bl, alpha).next();
