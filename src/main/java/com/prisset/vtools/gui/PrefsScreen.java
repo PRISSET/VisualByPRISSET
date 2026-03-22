@@ -26,6 +26,7 @@ public class PrefsScreen extends Screen {
     private boolean filterPlayers;
     private boolean filterMobs;
     private boolean filterDrops;
+    private boolean filterProjectiles;
 
     public PrefsScreen(DisplayPrefs prefs) {
         super(Text.literal("\u00a7aPRISSET \u00a7fVisual Tools"));
@@ -45,6 +46,7 @@ public class PrefsScreen extends Screen {
         this.filterPlayers = prefs.isFilterPlayers();
         this.filterMobs = prefs.isFilterMobs();
         this.filterDrops = prefs.isFilterDrops();
+        this.filterProjectiles = prefs.isFilterProjectiles();
     }
 
     @Override
@@ -148,9 +150,9 @@ public class PrefsScreen extends Screen {
 
         // === FILTERS ===
 
-        int btnW = 66;
-        int gap = 4;
-        int totalW = btnW * 3 + gap * 2;
+        int btnW = 51;
+        int gap = 3;
+        int totalW = btnW * 4 + gap * 3;
         int fl = cx - totalW / 2;
 
         addDrawableChild(CyclingButtonWidget.onOffBuilder(
@@ -173,6 +175,13 @@ public class PrefsScreen extends Screen {
             .build(fl + (btnW + gap) * 2, y, btnW, 20,
                 Text.literal("\u0414\u0440\u043e\u043f"),
                 (btn, val) -> filterDrops = val));
+
+        addDrawableChild(CyclingButtonWidget.onOffBuilder(
+                Text.literal("\u00a7a\u0414\u0430"), Text.literal("\u00a7c\u041d\u0435\u0442"))
+            .initially(filterProjectiles)
+            .build(fl + (btnW + gap) * 3, y, btnW, 20,
+                Text.literal("\u0421\u043d\u0430\u0440\u044f\u0434\u044b"),
+                (btn, val) -> filterProjectiles = val));
         y += 28;
 
         // === APPLY ===
@@ -223,6 +232,7 @@ public class PrefsScreen extends Screen {
         prefs.setFilterPlayers(filterPlayers);
         prefs.setFilterMobs(filterMobs);
         prefs.setFilterDrops(filterDrops);
+        prefs.setFilterProjectiles(filterProjectiles);
         prefs.save();
 
         if (this.client != null) {

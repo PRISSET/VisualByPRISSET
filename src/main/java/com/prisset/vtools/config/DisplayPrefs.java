@@ -32,6 +32,7 @@ public class DisplayPrefs {
     private float rgbSpeed;
     private boolean healthBars;
     private float zoomStrength;
+    private boolean filterProjectiles;
     private boolean trailEnabled;
     private int trailLength;
 
@@ -48,6 +49,7 @@ public class DisplayPrefs {
         this.filterPlayers = true;
         this.filterMobs = true;
         this.filterDrops = false;
+        this.filterProjectiles = true;
         this.fastInteract = false;
         this.rgbMode = false;
         this.rgbSpeed = 1.0f;
@@ -77,6 +79,7 @@ public class DisplayPrefs {
         obj.addProperty("fp", filterPlayers);
         obj.addProperty("fm", filterMobs);
         obj.addProperty("fd", filterDrops);
+        obj.addProperty("fj", filterProjectiles);
         obj.addProperty("fi", fastInteract);
         obj.addProperty("rb", rgbMode);
         obj.addProperty("rs", rgbSpeed);
@@ -101,6 +104,7 @@ public class DisplayPrefs {
         if (obj.has("fp")) prefs.filterPlayers = obj.get("fp").getAsBoolean();
         if (obj.has("fm")) prefs.filterMobs = obj.get("fm").getAsBoolean();
         if (obj.has("fd")) prefs.filterDrops = obj.get("fd").getAsBoolean();
+        if (obj.has("fj")) prefs.filterProjectiles = obj.get("fj").getAsBoolean();
         if (obj.has("fi")) prefs.fastInteract = obj.get("fi").getAsBoolean();
         if (obj.has("rb")) prefs.rgbMode = obj.get("rb").getAsBoolean();
         if (obj.has("rs")) prefs.rgbSpeed = obj.get("rs").getAsFloat();
@@ -158,6 +162,7 @@ public class DisplayPrefs {
     public boolean isFilterPlayers() { return filterPlayers; }
     public boolean isFilterMobs() { return filterMobs; }
     public boolean isFilterDrops() { return filterDrops; }
+    public boolean isFilterProjectiles() { return filterProjectiles; }
     public boolean isFastInteract() { return true; }
     public boolean isRgbMode() { return rgbMode; }
     public float getRgbSpeed() { return rgbSpeed; }
@@ -179,6 +184,7 @@ public class DisplayPrefs {
     public void setFilterPlayers(boolean val) { this.filterPlayers = val; }
     public void setFilterMobs(boolean val) { this.filterMobs = val; }
     public void setFilterDrops(boolean val) { this.filterDrops = val; }
+    public void setFilterProjectiles(boolean val) { this.filterProjectiles = val; }
     public void setFastInteract(boolean val) { this.fastInteract = val; }
     public void setRgbMode(boolean val) { this.rgbMode = val; }
     public void setRgbSpeed(float val) { this.rgbSpeed = clamp(val, 0.1f, 5.0f); }

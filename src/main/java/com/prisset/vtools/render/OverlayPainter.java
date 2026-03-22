@@ -11,6 +11,7 @@ import net.minecraft.entity.ItemEntity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.mob.MobEntity;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.entity.projectile.ProjectileEntity;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.MathHelper;
@@ -167,6 +168,7 @@ public final class OverlayPainter {
         if (entity instanceof PlayerEntity) return prefs.isFilterPlayers();
         if (entity instanceof MobEntity)    return prefs.isFilterMobs();
         if (entity instanceof ItemEntity)   return prefs.isFilterDrops();
+        if (entity instanceof ProjectileEntity) return prefs.isFilterProjectiles();
         return false;
     }
 
