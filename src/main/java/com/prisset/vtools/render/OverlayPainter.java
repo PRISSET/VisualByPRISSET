@@ -2,13 +2,16 @@ package com.prisset.vtools.render;
 
 import com.prisset.vtools.config.DisplayPrefs;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.render.*;
+import net.minecraft.client.render.entity.EntityRenderDispatcher;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.ItemEntity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.mob.MobEntity;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.text.Text;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
@@ -18,6 +21,9 @@ import org.joml.Matrix4f;
 import java.awt.Color;
 
 public final class OverlayPainter {
+
+    private static final String HEART_FULL = "\u2764";
+    private static final String HEART_HALF = "\u2665";
 
     private OverlayPainter() {}
 
@@ -31,13 +37,13 @@ public final class OverlayPainter {
             if (!matchesFilter(entity, prefs)) continue;
             if (entity == camera.getFocusedEntity() && !camera.isThirdPerson()) continue;
 
-            paintEntity(entity, tickDelta, matrices, camPos, prefs);
+            paintEntity(entity, tickDelta, matrices, camPos, prefs, camera);
         }
     }
 
     private static void paintEntity(Entity entity, float tickDelta,
                                      MatrixStack matrices, Vec3d camPos,
-                                     DisplayPrefs prefs) {
+                                     DisplayPrefs prefs, Camera camera) {
 
         double x = MathHelper.lerp(tickDelta, entity.lastRenderX, entity.getX()) - camPos.x;
         double y = MathHelper.lerp(tickDelta, entity.lastRenderY, entity.getY()) - camPos.y;
@@ -86,6 +92,72 @@ public final class OverlayPainter {
                     1.0f, 0.0f, 0.0f, 0.8f);
             }
         }
+
+        immediate.draw();
+
+        // Health hearts above head
+        if (prefs.isHealthBars() && entity instanceof LivingEntity living) {
+            renderHearts(living, matrices, immediate, camera);
+        }
+
+        matrices.pop();
+    }
+
+    private static void renderHearts(LivingEntity entity, MatrixStack matrices,
+                                      VertexConsumerProvider.Immediate immediate,
+                                      Camera camera) {
+        MinecraftClient client = MinecraftClient.getInstance();
+        TextRenderer textRenderer = client.textRenderer;
+        EntityRenderDispatcher dispatcher = client.getEntityRenderDispatcher();
+
+        float health = entity.getHealth();
+        float maxHealth = entity.getMaxHealth();
+        if (maxHealth <= 0) return;
+
+        // Build hearts string: each heart = 2 HP
+        int totalHearts = Math.min((int) Math.ceil(maxHealth / 2.0f), 10);
+        float halfHearts = health;
+        StringBuilder sb = new StringBuilder();
+
+        for (int i = 0; i < totalHearts; i++) {
+            if (halfHearts >= 2.0f) {
+                sb.append("\u00a7c").append(HEART_FULL);
+                halfHearts -= 2.0f;
+            } else if (halfHearts >= 1.0f) {
+                sb.append("\u00a76").append(HEART_FULL);
+                halfHearts -= 1.0f;
+            } else {
+                sb.append("\u00a78").append(HEART_FULL);
+            }
+        }
+
+        // HP number
+        String hpText = String.format(" \u00a7f%.0f", health);
+        String fullText = sb.toString() + hpText;
+        Text text = Text.literal(fullText);
+
+        float labelHeight = entity.getHeight() + 0.5f;
+
+        matrices.push();
+        matrices.translate(0.0f, labelHeight, 0.0f);
+        matrices.multiply(dispatcher.getRotation());
+        matrices.scale(-0.025f, -0.025f, 0.025f);
+
+        float textWidth = textRenderer.getWidth(text);
+        float textX = -textWidth / 2.0f;
+
+        // Background
+        int bgColor = 0x40000000;
+        Matrix4f posMatrix = matrices.peek().getPositionMatrix();
+
+        textRenderer.draw(text, textX, 0, 0xFFFFFFFF, false,
+            posMatrix, immediate, TextRenderer.TextLayerType.NORMAL,
+            bgColor, 0xF000F0);
+
+        // Draw again fully bright on top (no shadow, see-through)
+        textRenderer.draw(text, textX, 0, 0xFFFFFFFF, false,
+            posMatrix, immediate, TextRenderer.TextLayerType.SEE_THROUGH,
+            0, 0xF000F0);
 
         immediate.draw();
         matrices.pop();

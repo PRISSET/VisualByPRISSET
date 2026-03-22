@@ -30,6 +30,7 @@ public class DisplayPrefs {
     private boolean fastInteract;
     private boolean rgbMode;
     private float rgbSpeed;
+    private boolean healthBars;
 
     private DisplayPrefs() {
         this.active = false;
@@ -47,6 +48,7 @@ public class DisplayPrefs {
         this.fastInteract = false;
         this.rgbMode = false;
         this.rgbSpeed = 1.0f;
+        this.healthBars = true;
     }
 
     public static DisplayPrefs defaults() {
@@ -72,6 +74,7 @@ public class DisplayPrefs {
         obj.addProperty("fi", fastInteract);
         obj.addProperty("rb", rgbMode);
         obj.addProperty("rs", rgbSpeed);
+        obj.addProperty("hb", healthBars);
         return obj;
     }
 
@@ -92,6 +95,7 @@ public class DisplayPrefs {
         if (obj.has("fi")) prefs.fastInteract = obj.get("fi").getAsBoolean();
         if (obj.has("rb")) prefs.rgbMode = obj.get("rb").getAsBoolean();
         if (obj.has("rs")) prefs.rgbSpeed = obj.get("rs").getAsFloat();
+        if (obj.has("hb")) prefs.healthBars = obj.get("hb").getAsBoolean();
         return prefs;
     }
 
@@ -145,6 +149,7 @@ public class DisplayPrefs {
     public boolean isFastInteract() { return true; }
     public boolean isRgbMode() { return rgbMode; }
     public float getRgbSpeed() { return rgbSpeed; }
+    public boolean isHealthBars() { return healthBars; }
     // --- Setters ---
 
     public void setActive(boolean val) { this.active = val; }
@@ -162,6 +167,7 @@ public class DisplayPrefs {
     public void setFastInteract(boolean val) { this.fastInteract = val; }
     public void setRgbMode(boolean val) { this.rgbMode = val; }
     public void setRgbSpeed(float val) { this.rgbSpeed = clamp(val, 0.1f, 5.0f); }
+    public void setHealthBars(boolean val) { this.healthBars = val; }
     // --- Utility ---
 
     private static float clamp(float val, float min, float max) {

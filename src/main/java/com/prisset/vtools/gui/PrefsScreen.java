@@ -19,6 +19,7 @@ public class PrefsScreen extends Screen {
     private int tintA;
     private boolean rgbMode;
     private float rgbSpeed;
+    private boolean healthBars;
     private boolean filterPlayers;
     private boolean filterMobs;
     private boolean filterDrops;
@@ -34,6 +35,7 @@ public class PrefsScreen extends Screen {
         this.tintA = prefs.getTintA();
         this.rgbMode = prefs.isRgbMode();
         this.rgbSpeed = prefs.getRgbSpeed();
+        this.healthBars = prefs.isHealthBars();
         this.filterPlayers = prefs.isFilterPlayers();
         this.filterMobs = prefs.isFilterMobs();
         this.filterDrops = prefs.isFilterDrops();
@@ -103,6 +105,16 @@ public class PrefsScreen extends Screen {
             0.1, 5.0, rgbSpeed,
             val -> Text.literal("\u00a7d\u0421\u043a\u043e\u0440\u043e\u0441\u0442\u044c: " + String.format("%.1fx", val)),
             val -> rgbSpeed = val.floatValue()));
+        y += 24;
+
+        // === HEALTH ===
+
+        addDrawableChild(CyclingButtonWidget.onOffBuilder(
+                Text.literal("\u00a7a\u0412\u041a\u041b"), Text.literal("\u00a7c\u0412\u042b\u041a\u041b"))
+            .initially(healthBars)
+            .build(left, y, w, 20,
+                Text.literal("\u00a7c\u2764 \u00a7f\u0417\u0434\u043e\u0440\u043e\u0432\u044c\u0435"),
+                (btn, val) -> healthBars = val));
         y += 24;
 
         // === FILTERS ===
@@ -175,6 +187,7 @@ public class PrefsScreen extends Screen {
         prefs.setTintA(tintA);
         prefs.setRgbMode(rgbMode);
         prefs.setRgbSpeed(rgbSpeed);
+        prefs.setHealthBars(healthBars);
         prefs.setFilterPlayers(filterPlayers);
         prefs.setFilterMobs(filterMobs);
         prefs.setFilterDrops(filterDrops);
