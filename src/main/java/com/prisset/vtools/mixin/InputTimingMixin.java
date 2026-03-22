@@ -4,10 +4,8 @@ import com.prisset.vtools.VToolsMod;
 import com.prisset.vtools.config.DisplayPrefs;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
-import net.minecraft.client.option.GameOptions;
 import net.minecraft.item.Items;
 import net.minecraft.util.Hand;
-import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
@@ -16,19 +14,14 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
+import java.util.concurrent.ThreadLocalRandom;
+
 @Mixin(MinecraftClient.class)
 public abstract class InputTimingMixin {
 
     @Shadow private int itemUseCooldown;
     @Shadow protected int attackCooldown;
-    @Shadow @Final public GameOptions options;
     @Shadow public ClientPlayerEntity player;
-
-    @Shadow private void doItemUse() {}
-    @Shadow private boolean doAttack() { return false; }
-
-    // ~16ms average (3 actions per 50ms tick)
-    @Unique private static final int EXTRA_PER_TICK = 2;
 
     @Unique
     private boolean vtools$fastEnabled() {
@@ -43,43 +36,31 @@ public abstract class InputTimingMixin {
             || this.player.getStackInHand(Hand.OFF_HAND).isOf(Items.END_CRYSTAL);
     }
 
-    // Only clear cooldown when holding crystal
+    // ~30% chance to skip = avg ~14 actions/sec, looks human
+    @Unique
+    private boolean vtools$shouldSkip() {
+        return ThreadLocalRandom.current().nextFloat() < 0.3f;
+    }
+
     @Inject(method = "doItemUse", at = @At("RETURN"))
     private void vtools$clearUseCooldown(CallbackInfo ci) {
-        if (vtools$fastEnabled() && vtools$holdsCrystal()) {
+        if (vtools$fastEnabled() && vtools$holdsCrystal() && !vtools$shouldSkip()) {
             this.itemUseCooldown = 0;
         }
     }
 
     @Inject(method = "doAttack", at = @At("RETURN"))
     private void vtools$clearAttackCooldown(CallbackInfoReturnable<Boolean> cir) {
-        if (vtools$fastEnabled() && vtools$holdsCrystal()) {
+        if (vtools$fastEnabled() && vtools$holdsCrystal() && !vtools$shouldSkip()) {
             this.attackCooldown = 0;
         }
     }
 
     @Inject(method = "tick", at = @At("HEAD"))
     private void vtools$clearCooldownsOnTick(CallbackInfo ci) {
-        if (vtools$fastEnabled() && vtools$holdsCrystal()) {
+        if (vtools$fastEnabled() && vtools$holdsCrystal() && !vtools$shouldSkip()) {
             this.itemUseCooldown = 0;
             this.attackCooldown = 0;
-        }
-    }
-
-    // Extra crystal actions per tick for ~16ms average delay
-    @Inject(method = "handleInputEvents", at = @At("RETURN"))
-    private void vtools$extraActions(CallbackInfo ci) {
-        if (!vtools$fastEnabled() || !vtools$holdsCrystal()) return;
-
-        for (int i = 0; i < EXTRA_PER_TICK; i++) {
-            if (this.options.useKey.isPressed()) {
-                this.itemUseCooldown = 0;
-                this.doItemUse();
-            }
-            if (this.options.attackKey.isPressed()) {
-                this.attackCooldown = 0;
-                this.doAttack();
-            }
         }
     }
 }
