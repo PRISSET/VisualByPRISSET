@@ -1,10 +1,13 @@
 package com.prisset.vtools.gui;
 
+import com.mojang.blaze3d.systems.RenderSystem;
 import com.prisset.vtools.config.DisplayPrefs;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.font.TextRenderer;
+import net.minecraft.text.Style;
 import net.minecraft.text.Text;
+import net.minecraft.util.Identifier;
 
 import java.awt.Color;
 import java.util.ArrayList;
@@ -14,51 +17,47 @@ import java.util.function.Supplier;
 
 public class PrefsScreen extends Screen {
 
-    // Celestial-like palette
-    private static final int C_WIN_BG       = 0xF0161622;
-    private static final int C_SIDEBAR_BG   = 0xF01C1C30;
-    private static final int C_CONTENT_BG   = 0xF0121220;
-    private static final int C_HEADER_BG    = 0xF0181828;
-    private static final int C_ACCENT       = 0xFFE8489C;
-    private static final int C_ACCENT2      = 0xFFA855F7;
-    private static final int C_CARD_BG      = 0xE81E1E32;
-    private static final int C_CARD_ON1     = 0xE8E8489C;
-    private static final int C_CARD_ON2     = 0xE8A855F7;
-    private static final int C_CARD_HOVER   = 0xE8282840;
-    private static final int C_TEXT         = 0xFFE8E8F0;
-    private static final int C_TEXT_DIM     = 0xFF6E6E88;
-    private static final int C_TEXT_DESC    = 0xFFB0B0C8;
-    private static final int C_CAT_ACTIVE   = 0xFF3D2D58;
-    private static final int C_DOT_ON       = 0xFF4ADE80;
-    private static final int C_DOT_OFF      = 0xFF52525E;
-    private static final int C_DIVIDER      = 0xFF2A2A40;
-    private static final int C_SEARCH_BG    = 0xFF22222E;
-    private static final int C_TOGGLE_ON    = 0xFF4ADE80;
-    private static final int C_TOGGLE_OFF   = 0xFF52525E;
-    private static final int C_SLIDER_TRK   = 0xFF2A2A40;
-    private static final int C_KNOB         = 0xFFE0E0E8;
+    // Textures
+    private static final Identifier TEX_WINDOW   = new Identifier("prisset-vtools", "textures/gui/window_bg.png");
+    private static final Identifier TEX_SIDEBAR   = new Identifier("prisset-vtools", "textures/gui/sidebar_bg.png");
+    private static final Identifier TEX_CARD_OFF  = new Identifier("prisset-vtools", "textures/gui/card_off.png");
+    private static final Identifier TEX_CARD_ON   = new Identifier("prisset-vtools", "textures/gui/card_on.png");
+    private static final Identifier TEX_CARD_HOV  = new Identifier("prisset-vtools", "textures/gui/card_hover.png");
+    private static final Identifier TEX_PILL      = new Identifier("prisset-vtools", "textures/gui/pill.png");
+    private static final Identifier TEX_GLOW      = new Identifier("prisset-vtools", "textures/gui/glow.png");
+    private static final Identifier TEX_SEARCH    = new Identifier("prisset-vtools", "textures/gui/search_bar.png");
+    private static final Identifier TEX_TOG_ON    = new Identifier("prisset-vtools", "textures/gui/toggle_on.png");
+    private static final Identifier TEX_TOG_OFF   = new Identifier("prisset-vtools", "textures/gui/toggle_off.png");
+    private static final Identifier TEX_SLD_TRK   = new Identifier("prisset-vtools", "textures/gui/slider_track.png");
+    private static final Identifier TEX_SLD_FILL  = new Identifier("prisset-vtools", "textures/gui/slider_fill.png");
+    private static final Identifier TEX_SLD_KNOB  = new Identifier("prisset-vtools", "textures/gui/slider_knob.png");
+    private static final Identifier TEX_DOT_ON    = new Identifier("prisset-vtools", "textures/gui/dot_on.png");
+    private static final Identifier TEX_DOT_OFF   = new Identifier("prisset-vtools", "textures/gui/dot_off.png");
+    private static final Identifier TEX_ICON_R    = new Identifier("prisset-vtools", "textures/gui/icon_render.png");
+    private static final Identifier TEX_ICON_V    = new Identifier("prisset-vtools", "textures/gui/icon_visual.png");
+    private static final Identifier TEX_ICON_S    = new Identifier("prisset-vtools", "textures/gui/icon_settings.png");
+    private static final Identifier TEX_ICON_LOGO = new Identifier("prisset-vtools", "textures/gui/icon_logo.png");
+    private static final Identifier TEX_SETTINGS  = new Identifier("prisset-vtools", "textures/gui/settings_panel.png");
+    private static final Identifier TEX_HLINE     = new Identifier("prisset-vtools", "textures/gui/header_line.png");
+
+    // Font
+    private static final Identifier FONT_ID = new Identifier("prisset-vtools", "vtools");
+    private static Style fontStyle() { return Style.EMPTY.withFont(FONT_ID); }
 
     // Layout
-    private static final int W = 440, H = 300;
-    private static final int SB_W = 110;
-    private static final int HDR_H = 34;
-    private static final int CARD_W = 148, CARD_H = 56, CARD_GAP = 6;
+    private static final int W = 460, H = 310;
+    private static final int SB_W = 120;
+    private static final int HDR_H = 38;
+    private static final int CARD_W = 152, CARD_H = 62, CARD_GAP = 8;
 
     private final DisplayPrefs prefs;
     private int wx, wy;
-    private final List<Category> cats = new ArrayList<>();
-    private Category activeCat;
+    private final List<Cat> cats = new ArrayList<>();
+    private Cat activeCat;
     private long openTime;
-
-    // Settings overlay
-    private Module settingsModule;
-    private final List<SettingsWidget> sWidgets = new ArrayList<>();
-    private SettingsWidget sDrag;
-
-    // Per-card hover animation
-    private final float[] cardHover = new float[32];
-    // Per-category hover
-    private final float[] catHover = new float[16];
+    private Mod settingsMod;
+    private final List<SWidget> sWidgets = new ArrayList<>();
+    private SWidget sDrag;
 
     public PrefsScreen(DisplayPrefs prefs) {
         super(Text.literal("PRISSET"));
@@ -70,202 +69,142 @@ public class PrefsScreen extends Screen {
         wx = (width - W) / 2;
         wy = (height - H) / 2;
         openTime = System.currentTimeMillis();
-        settingsModule = null;
+        settingsMod = null;
         sDrag = null;
-        java.util.Arrays.fill(cardHover, 0f);
-        java.util.Arrays.fill(catHover, 0f);
-        buildCategories();
+        buildCats();
         activeCat = cats.get(0);
     }
 
-    private void buildCategories() {
+    private void buildCats() {
         cats.clear();
 
-        Category rndr = cat("\u25C8  \u0420\u0435\u043d\u0434\u0435\u0440");
-        rndr.add(mod("\u041e\u0432\u0435\u0440\u043b\u0435\u0439", "\u041f\u043e\u043a\u0430\u0437 \u0433\u0440\u0430\u043d\u0438\u0446 \u043c\u043e\u0434\u0435\u043b\u0435\u0439", prefs::isActive, v -> prefs.setActive(v), this::bldOverlay));
-        rndr.add(mod("RGB", "\u0420\u0430\u0434\u0443\u0436\u043d\u0430\u044f \u0430\u043d\u0438\u043c\u0430\u0446\u0438\u044f", prefs::isRgbMode, v -> prefs.setRgbMode(v), this::bldRgb));
-        rndr.add(mod("\u0417\u0434\u043e\u0440\u043e\u0432\u044c\u0435", "\u0425\u041f \u043d\u0430\u0434 \u0441\u0443\u0449\u043d\u043e\u0441\u0442\u044f\u043c\u0438", prefs::isHealthBars, v -> prefs.setHealthBars(v), null));
-        rndr.add(mod("\u0421\u043b\u0435\u0434", "\u041b\u0438\u043d\u0438\u044f \u0437\u0430 \u0438\u0433\u0440\u043e\u043a\u0430\u043c\u0438", prefs::isTrailEnabled, v -> prefs.setTrailEnabled(v), this::bldTrail));
+        Cat r = new Cat("\u0420\u0435\u043d\u0434\u0435\u0440", TEX_ICON_R);
+        r.add(new Mod("\u041e\u0432\u0435\u0440\u043b\u0435\u0439", "\u041f\u043e\u043a\u0430\u0437 \u0433\u0440\u0430\u043d\u0438\u0446 \u043c\u043e\u0434\u0435\u043b\u0435\u0439 \u0441\u0443\u0449\u043d\u043e\u0441\u0442\u0435\u0439", prefs::isActive, v -> prefs.setActive(v), this::bOverlay));
+        r.add(new Mod("RGB", "\u0420\u0430\u0434\u0443\u0436\u043d\u0430\u044f \u0430\u043d\u0438\u043c\u0430\u0446\u0438\u044f \u0446\u0432\u0435\u0442\u043e\u0432\u043e\u0433\u043e \u043e\u0432\u0435\u0440\u043b\u0435\u044f", prefs::isRgbMode, v -> prefs.setRgbMode(v), this::bRgb));
+        r.add(new Mod("\u0417\u0434\u043e\u0440\u043e\u0432\u044c\u0435", "\u041e\u0442\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u0438\u0435 HP \u043d\u0430\u0434 \u0441\u0443\u0449\u043d\u043e\u0441\u0442\u044f\u043c\u0438", prefs::isHealthBars, v -> prefs.setHealthBars(v), null));
+        r.add(new Mod("\u0421\u043b\u0435\u0434", "\u041f\u043e\u043b\u0443\u043f\u0440\u043e\u0437\u0440\u0430\u0447\u043d\u0430\u044f \u043b\u0438\u043d\u0438\u044f \u0437\u0430 \u0438\u0433\u0440\u043e\u043a\u0430\u043c\u0438", prefs::isTrailEnabled, v -> prefs.setTrailEnabled(v), this::bTrail));
 
-        Category vis = cat("\u25CE  \u0412\u0438\u0437\u0443\u0430\u043b");
-        vis.add(mod("\u0417\u0443\u043c", "\u041f\u0440\u0438\u0431\u043b\u0438\u0436\u0435\u043d\u0438\u0435 \u043d\u0430 \u043a\u043b\u0430\u0432\u0438\u0448\u0443 C", () -> true, v -> {}, this::bldZoom));
+        Cat v = new Cat("\u0412\u0438\u0437\u0443\u0430\u043b", TEX_ICON_V);
+        v.add(new Mod("\u0417\u0443\u043c", "\u041f\u0440\u0438\u0431\u043b\u0438\u0436\u0435\u043d\u0438\u0435 \u043d\u0430 \u043a\u043b\u0430\u0432\u0438\u0448\u0443 C", () -> true, x -> {}, this::bZoom));
 
-        Category cfg = cat("\u2699  \u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438");
-        cfg.add(mod("\u0426\u0432\u0435\u0442", "\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0430 RGBA", () -> true, v -> {}, this::bldColor));
-        cfg.add(mod("\u0424\u0438\u043b\u044c\u0442\u0440\u044b", "\u0422\u0438\u043f\u044b \u0441\u0443\u0449\u043d\u043e\u0441\u0442\u0435\u0439", () -> true, v -> {}, this::bldFilter));
+        Cat s = new Cat("\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438", TEX_ICON_S);
+        s.add(new Mod("\u0426\u0432\u0435\u0442", "\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0430 RGBA \u043e\u0432\u0435\u0440\u043b\u0435\u044f", () -> true, x -> {}, this::bColor));
+        s.add(new Mod("\u0424\u0438\u043b\u044c\u0442\u0440\u044b", "\u0412\u044b\u0431\u043e\u0440 \u0442\u0438\u043f\u043e\u0432 \u0441\u0443\u0449\u043d\u043e\u0441\u0442\u0435\u0439 \u0434\u043b\u044f \u043e\u0432\u0435\u0440\u043b\u0435\u044f", () -> true, x -> {}, this::bFilter));
 
-        cats.add(rndr);
-        cats.add(vis);
-        cats.add(cfg);
-    }
-
-    private Category cat(String n) { return new Category(n); }
-    private Module mod(String n, String d, Supplier<Boolean> g, Consumer<Boolean> s, Runnable sb) {
-        return new Module(n, d, g, s, sb);
+        cats.add(r); cats.add(v); cats.add(s);
     }
 
     // Settings builders
-    private void bldOverlay() {
+    private void bOverlay() { sWidgets.clear(); sWidgets.add(new SSlider("\u041f\u0440\u043e\u0437\u0440\u0430\u0447\u043d\u043e\u0441\u0442\u044c", 0,255, prefs.getTintA(), x -> prefs.setTintA(x.intValue()))); }
+    private void bRgb() { sWidgets.clear(); sWidgets.add(new SSlider("\u0421\u043a\u043e\u0440\u043e\u0441\u0442\u044c", 0.1f,5f, prefs.getRgbSpeed(), x -> prefs.setRgbSpeed(x.floatValue()))); }
+    private void bTrail() { sWidgets.clear(); sWidgets.add(new SSlider("\u0414\u043b\u0438\u043d\u0430", 5,40, prefs.getTrailLength(), x -> prefs.setTrailLength(x.intValue()))); }
+    private void bZoom() { sWidgets.clear(); sWidgets.add(new SSlider("\u0421\u0438\u043b\u0430", 1.5f,10f, prefs.getZoomStrength(), x -> prefs.setZoomStrength(x.floatValue()))); }
+    private void bColor() {
         sWidgets.clear();
-        sWidgets.add(new SSlider("\u041f\u0440\u043e\u0437\u0440\u0430\u0447\u043d\u043e\u0441\u0442\u044c", 0, 255, prefs.getTintA(), v -> prefs.setTintA(v.intValue()), C_TEXT_DIM));
+        sWidgets.add(new SSlider("\u041a\u0440\u0430\u0441\u043d\u044b\u0439", 0,255, prefs.getTintR(), x -> prefs.setTintR(x.intValue())));
+        sWidgets.add(new SSlider("\u0417\u0435\u043b\u0451\u043d\u044b\u0439", 0,255, prefs.getTintG(), x -> prefs.setTintG(x.intValue())));
+        sWidgets.add(new SSlider("\u0421\u0438\u043d\u0438\u0439", 0,255, prefs.getTintB(), x -> prefs.setTintB(x.intValue())));
+        sWidgets.add(new SSlider("\u041f\u0440\u043e\u0437\u0440\u0430\u0447\u043d\u043e\u0441\u0442\u044c", 0,255, prefs.getTintA(), x -> prefs.setTintA(x.intValue())));
     }
-    private void bldRgb() {
+    private void bFilter() {
         sWidgets.clear();
-        sWidgets.add(new SSlider("\u0421\u043a\u043e\u0440\u043e\u0441\u0442\u044c", 0.1f, 5f, prefs.getRgbSpeed(), v -> prefs.setRgbSpeed(v.floatValue()), C_ACCENT));
-    }
-    private void bldTrail() {
-        sWidgets.clear();
-        sWidgets.add(new SSlider("\u0414\u043b\u0438\u043d\u0430", 5, 40, prefs.getTrailLength(), v -> prefs.setTrailLength(v.intValue()), 0xFFFF9F0A));
-    }
-    private void bldZoom() {
-        sWidgets.clear();
-        sWidgets.add(new SSlider("\u0421\u0438\u043b\u0430", 1.5f, 10f, prefs.getZoomStrength(), v -> prefs.setZoomStrength(v.floatValue()), 0xFF38BDF8));
-    }
-    private void bldColor() {
-        sWidgets.clear();
-        sWidgets.add(new SSlider("\u041a\u0440\u0430\u0441\u043d\u044b\u0439", 0, 255, prefs.getTintR(), v -> prefs.setTintR(v.intValue()), 0xFFFF453A));
-        sWidgets.add(new SSlider("\u0417\u0435\u043b\u0451\u043d\u044b\u0439", 0, 255, prefs.getTintG(), v -> prefs.setTintG(v.intValue()), 0xFF4ADE80));
-        sWidgets.add(new SSlider("\u0421\u0438\u043d\u0438\u0439", 0, 255, prefs.getTintB(), v -> prefs.setTintB(v.intValue()), 0xFF38BDF8));
-        sWidgets.add(new SSlider("\u041f\u0440\u043e\u0437\u0440\u0430\u0447\u043d\u043e\u0441\u0442\u044c", 0, 255, prefs.getTintA(), v -> prefs.setTintA(v.intValue()), 0xFF8E8E93));
-    }
-    private void bldFilter() {
-        sWidgets.clear();
-        sWidgets.add(new SToggle("\u0418\u0433\u0440\u043e\u043a\u0438", prefs::isFilterPlayers, v -> prefs.setFilterPlayers(v)));
-        sWidgets.add(new SToggle("\u041c\u043e\u0431\u044b", prefs::isFilterMobs, v -> prefs.setFilterMobs(v)));
-        sWidgets.add(new SToggle("\u041f\u0440\u0435\u0434\u043c\u0435\u0442\u044b", prefs::isFilterDrops, v -> prefs.setFilterDrops(v)));
-        sWidgets.add(new SToggle("\u0421\u043d\u0430\u0440\u044f\u0434\u044b", prefs::isFilterProjectiles, v -> prefs.setFilterProjectiles(v)));
+        sWidgets.add(new SToggle("\u0418\u0433\u0440\u043e\u043a\u0438", prefs::isFilterPlayers, x -> prefs.setFilterPlayers(x)));
+        sWidgets.add(new SToggle("\u041c\u043e\u0431\u044b", prefs::isFilterMobs, x -> prefs.setFilterMobs(x)));
+        sWidgets.add(new SToggle("\u041f\u0440\u0435\u0434\u043c\u0435\u0442\u044b", prefs::isFilterDrops, x -> prefs.setFilterDrops(x)));
+        sWidgets.add(new SToggle("\u0421\u043d\u0430\u0440\u044f\u0434\u044b", prefs::isFilterProjectiles, x -> prefs.setFilterProjectiles(x)));
     }
 
     // === RENDER ===
 
     @Override
     public void render(DrawContext ctx, int mx, int my, float delta) {
-        float openAnim = Math.min(1f, (System.currentTimeMillis() - openTime) / 200f);
-        float scale = 0.85f + 0.15f * easeOut(openAnim);
-        int alpha = (int)(openAnim * 180);
+        long now = System.currentTimeMillis();
+        float openA = Math.min(1f, (now - openTime) / 250f);
+        float ease = easeOut(openA);
+        int dimA = (int)(ease * 160);
+        ctx.fill(0, 0, width, height, dimA << 24);
 
-        // Dim bg
-        ctx.fill(0, 0, width, height, (alpha << 24));
-
-        if (openAnim < 1f) {
+        // Scale animation
+        if (openA < 1f) {
+            float sc = 0.88f + 0.12f * ease;
             ctx.getMatrices().push();
             float cx = wx + W / 2f, cy = wy + H / 2f;
             ctx.getMatrices().translate(cx, cy, 0);
-            ctx.getMatrices().scale(scale, scale, 1f);
+            ctx.getMatrices().scale(sc, sc, 1f);
             ctx.getMatrices().translate(-cx, -cy, 0);
         }
 
-        // Shadow
-        ctx.fill(wx + 5, wy + 5, wx + W + 5, wy + H + 5, 0x50000000);
+        // Window bg texture (stretched)
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+        tex(ctx, TEX_WINDOW, wx, wy, W, H);
 
-        // Window
-        ctx.fill(wx, wy, wx + W, wy + H, C_WIN_BG);
+        // Sidebar
+        tex(ctx, TEX_SIDEBAR, wx, wy, SB_W, H);
 
-        drawSidebar(ctx, mx, my, delta);
-        drawHeader(ctx, mx, my);
-        drawContent(ctx, mx, my, delta);
+        // Logo
+        tex(ctx, TEX_ICON_LOGO, wx + 8, wy + 6, 24, 24);
+        drawFont(ctx, "PRISSET", wx + 36, wy + 12, 0xFFE8E8F0);
 
-        if (settingsModule != null) drawSettings(ctx, mx, my);
+        // Sidebar divider line
+        ctx.fill(wx + SB_W - 1, wy, wx + SB_W, wy + H, 0x30FFFFFF);
 
-        // Window border glow
-        drawBdr(ctx, wx, wy, W, H, C_DIVIDER);
-
-        if (openAnim < 1f) {
-            ctx.getMatrices().pop();
-        }
-    }
-
-    private void drawSidebar(DrawContext ctx, int mx, int my, float delta) {
-        int sx = wx, sy = wy, sh = H;
-        ctx.fill(sx, sy, sx + SB_W, sy + sh, C_SIDEBAR_BG);
-        ctx.fill(sx + SB_W - 1, sy, sx + SB_W, sy + sh, C_DIVIDER);
-
-        // Logo animated
-        long t = System.currentTimeMillis();
-        float hBase = (t % 5000L) / 5000f;
-        String logo = "PRISSET";
-        int lw = textRenderer.getWidth(logo);
-        int lx = sx + (SB_W - lw) / 2;
-        int ly = sy + 10;
-
-        // Glow pulse
-        float pulse = (float)(Math.sin(t / 400.0) * 0.3 + 0.7);
-        int ga = (int)(pulse * 40);
-        ctx.fill(lx - 6, ly - 3, lx + lw + 6, ly + 12, (ga << 24) | (0xE8489C & 0x00FFFFFF));
-
-        for (int i = 0; i < logo.length(); i++) {
-            float hue = (hBase + i * 0.06f) % 1f;
-            int rgb = Color.HSBtoRGB(hue, 0.55f, 1f);
-            ctx.drawTextWithShadow(textRenderer, String.valueOf(logo.charAt(i)), lx, ly, 0xFF000000 | (rgb & 0xFFFFFF));
-            lx += textRenderer.getWidth(String.valueOf(logo.charAt(i)));
-        }
-
-        // Categories
-        int cy = sy + 32;
-        for (int ci = 0; ci < cats.size(); ci++) {
-            Category c = cats.get(ci);
+        // Category list
+        int cy = wy + 42;
+        for (int i = 0; i < cats.size(); i++) {
+            Cat c = cats.get(i);
             boolean act = c == activeCat;
-            boolean hov = mx >= sx && mx < sx + SB_W && my >= cy && my < cy + 26;
-
-            // Hover animation
-            float tgt = (act || hov) ? 1f : 0f;
-            if (ci < catHover.length) {
-                catHover[ci] += (tgt - catHover[ci]) * 0.18f;
-            }
-            float anim = ci < catHover.length ? catHover[ci] : 0f;
+            boolean hov = mx >= wx && mx < wx + SB_W && my >= cy && my < cy + 28;
+            c.ry = cy;
 
             if (act) {
-                // Active: accent bg + left bar
-                int abg = blendAlpha(C_CAT_ACTIVE, anim);
-                ctx.fill(sx + 2, cy, sx + SB_W - 1, cy + 26, abg);
-                ctx.fill(sx, cy + 2, sx + 3, cy + 24, C_ACCENT);
-            } else if (anim > 0.01f) {
-                ctx.fill(sx + 2, cy, sx + SB_W - 1, cy + 26, blendAlpha(0x20FFFFFF, anim));
+                tex(ctx, TEX_PILL, wx + 4, cy, SB_W - 8, 28);
+            } else if (hov) {
+                ctx.fill(wx + 4, cy, wx + SB_W - 4, cy + 28, 0x18FFFFFF);
             }
 
-            ctx.drawTextWithShadow(textRenderer, c.name, sx + 10, cy + 9, act ? C_TEXT : C_TEXT_DIM);
-            c.ry = cy;
-            cy += 28;
+            // Category icon
+            tex(ctx, c.icon, wx + 12, cy + 4, 20, 20);
+            // Category label
+            drawFont(ctx, c.name, wx + 36, cy + 10, act ? 0xFFFFFFFF : 0xFFA0A0B8);
+            cy += 32;
         }
 
-        // Bottom
-        ctx.drawTextWithShadow(textRenderer, "\u00a78v1.0.0", sx + 8, sy + sh - 14, C_TEXT_DIM);
+        // Bottom version
+        drawFont(ctx, "v1.0.0", wx + 14, wy + H - 16, 0xFF505068);
+
+        // Header
+        int hx = wx + SB_W;
+        ctx.fill(hx, wy, wx + W, wy + HDR_H, 0xE0161628);
+
+        // Search bar texture
+        tex(ctx, TEX_SEARCH, hx + 10, wy + 7, W - SB_W - 20, 24);
+        drawFont(ctx, "\u2315  " + (activeCat != null ? activeCat.name : ""), hx + 20, wy + 14, 0xFF6E6E88);
+
+        // Header line
+        tex(ctx, TEX_HLINE, hx, wy + HDR_H - 1, W - SB_W, 2);
+
+        // Content area
+        drawContent(ctx, mx, my, now);
+
+        // Settings overlay
+        if (settingsMod != null) drawSettings(ctx, mx, my);
+
+        if (openA < 1f) ctx.getMatrices().pop();
+        RenderSystem.disableBlend();
     }
 
-    private void drawHeader(DrawContext ctx, int mx, int my) {
-        int hx = wx + SB_W, hy = wy;
-        int hw = W - SB_W;
-        ctx.fill(hx, hy, hx + hw, hy + HDR_H, C_HEADER_BG);
-        ctx.fill(hx, hy + HDR_H - 1, hx + hw, hy + HDR_H, C_DIVIDER);
-
-        // Search bar decoration
-        int srchX = hx + 10, srchY = hy + 8, srchW = hw - 20, srchH = 18;
-        fillRound(ctx, srchX, srchY, srchW, srchH, C_SEARCH_BG);
-        ctx.drawTextWithShadow(textRenderer, "\u00a78\u2315  " + (activeCat != null ? activeCat.name : ""), srchX + 6, srchY + 5, C_TEXT_DIM);
-
-        // Module count
-        if (activeCat != null) {
-            String cnt = activeCat.mods.size() + "";
-            int cw = textRenderer.getWidth(cnt);
-            ctx.fill(hx + hw - cw - 22, srchY + 2, hx + hw - 18, srchY + srchH - 2, C_DIVIDER);
-            ctx.drawTextWithShadow(textRenderer, cnt, hx + hw - cw - 20, srchY + 5, C_TEXT_DIM);
-        }
-    }
-
-    private void drawContent(DrawContext ctx, int mx, int my, float delta) {
+    private void drawContent(DrawContext ctx, int mx, int my, long now) {
         if (activeCat == null) return;
-        int cx = wx + SB_W + 1;
+        int cx = wx + SB_W;
         int cy = wy + HDR_H;
-        int cw = W - SB_W - 1;
+        int cw = W - SB_W;
         int ch = H - HDR_H;
-        ctx.fill(cx, cy, cx + cw, cy + ch, C_CONTENT_BG);
-
         int pad = 10;
         int cols = 2;
-        long now = System.currentTimeMillis();
 
         for (int i = 0; i < activeCat.mods.size(); i++) {
-            Module m = activeCat.mods.get(i);
+            Mod m = activeCat.mods.get(i);
             int col = i % cols;
             int row = i / cols;
             int x = cx + pad + col * (CARD_W + CARD_GAP);
@@ -274,305 +213,197 @@ public class PrefsScreen extends Screen {
             if (y + CARD_H < cy || y > cy + ch) { m.lx = -1; continue; }
             m.lx = x; m.ly = y;
 
-            boolean on = m.getter.get();
+            boolean on = m.get.get();
             boolean hov = mx >= x && mx < x + CARD_W && my >= y && my < y + CARD_H && my >= cy;
 
-            // Hover anim
-            float htgt = hov ? 1f : 0f;
-            if (i < cardHover.length) {
-                cardHover[i] += (htgt - cardHover[i]) * 0.15f;
+            // Entrance animation
+            float ent = Math.min(1f, Math.max(0f, (now - openTime - i * 50L) / 200f));
+            ent = easeOut(ent);
+
+            if (ent < 1f) {
+                ctx.getMatrices().push();
+                ctx.getMatrices().translate(x + CARD_W / 2f, y + CARD_H / 2f, 0);
+                ctx.getMatrices().scale(ent, ent, 1f);
+                ctx.getMatrices().translate(-(x + CARD_W / 2f), -(y + CARD_H / 2f), 0);
             }
-            float ha = i < cardHover.length ? cardHover[i] : 0f;
 
-            // Card entrance animation
-            float entrance = Math.min(1f, (now - openTime - i * 40L) / 250f);
-            entrance = Math.max(0f, entrance);
-            entrance = easeOut(entrance);
-            int cardAlpha = (int)(entrance * 232);
-
-            // Card background
+            // Glow behind active cards
             if (on) {
-                // Gradient: accent1 -> accent2 with pulse
-                float p = (float)(Math.sin(now / 800.0 + i * 0.5) * 0.08 + 0.92);
-                int c1 = applyAlpha(lerpColor(C_CARD_ON1, C_CARD_ON2, (float)(i % 3) / 2f), (int)(cardAlpha * p));
-                ctx.fill(x, y, x + CARD_W, y + CARD_H, c1);
-                // Inner glow top
-                ctx.fill(x, y, x + CARD_W, y + 2, applyAlpha(0xFFFFFFFF, (int)(30 * p)));
-            } else {
-                int bg = ha > 0.01f ? lerpColor(C_CARD_BG, C_CARD_HOVER, ha) : C_CARD_BG;
-                ctx.fill(x, y, x + CARD_W, y + CARD_H, applyAlpha(bg, cardAlpha));
+                float pulse = (float)(Math.sin(now / 600.0 + i * 0.7) * 0.15 + 0.85);
+                RenderSystem.setShaderColor(1f, 1f, 1f, pulse * 0.6f);
+                tex(ctx, TEX_GLOW, x - 14, y - 9, CARD_W + 28, CARD_H + 18);
+                RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
             }
 
-            // Left accent strip (on)
-            if (on) {
-                float glow = (float)(Math.sin(now / 600.0 + i) * 0.3 + 0.7);
-                ctx.fill(x, y + 2, x + 3, y + CARD_H - 2, applyAlpha(C_ACCENT, (int)(255 * glow)));
-            }
-
-            // Border
-            drawBdr(ctx, x, y, CARD_W, CARD_H, on ? applyAlpha(C_ACCENT, 80) : C_DIVIDER);
+            // Card texture
+            Identifier cardTex = on ? TEX_CARD_ON : (hov ? TEX_CARD_HOV : TEX_CARD_OFF);
+            tex(ctx, cardTex, x, y, CARD_W, CARD_H);
 
             // Status dot
-            int dotX = x + CARD_W - 14, dotY = y + 7;
-            int dotC = on ? C_DOT_ON : C_DOT_OFF;
-            ctx.fill(dotX, dotY, dotX + 6, dotY + 6, dotC);
-            if (on) {
-                // Dot glow
-                ctx.fill(dotX - 1, dotY - 1, dotX + 7, dotY + 7, applyAlpha(C_DOT_ON, 40));
+            tex(ctx, on ? TEX_DOT_ON : TEX_DOT_OFF, x + CARD_W - 16, y + 8, 8, 8);
+
+            // Module name (bold via custom font)
+            drawFont(ctx, m.name, x + 10, y + 10, on ? 0xFFFFFFFF : 0xFFCCCCDD);
+
+            // Settings gear icon
+            if (m.sBuild != null) {
+                drawFont(ctx, "\u2699", x + textRenderer.getWidth(Text.literal(m.name).setStyle(fontStyle())) + 14, y + 10, 0xFF8888A0);
             }
 
-            // Name
-            ctx.drawTextWithShadow(textRenderer, m.name, x + 8, y + 7, on ? C_TEXT : C_TEXT_DIM);
-
-            // Description (up to 2 lines)
-            String d = m.desc;
-            int maxW = CARD_W - 16;
-            if (textRenderer.getWidth(d) > maxW) {
-                // Line 1
-                String l1 = trimToWidth(d, maxW);
-                ctx.drawTextWithShadow(textRenderer, l1, x + 8, y + 22, C_TEXT_DESC);
-                String l2 = d.substring(l1.length()).trim();
-                if (textRenderer.getWidth(l2) > maxW) l2 = trimToWidth(l2, maxW - 8) + "..";
-                if (!l2.isEmpty()) ctx.drawTextWithShadow(textRenderer, l2, x + 8, y + 33, C_TEXT_DESC);
-            } else {
-                ctx.drawTextWithShadow(textRenderer, d, x + 8, y + 22, C_TEXT_DESC);
+            // Description
+            String desc = m.desc;
+            int maxDW = CARD_W - 18;
+            List<String> lines = wrapText(desc, maxDW);
+            int dy = y + 26;
+            for (int li = 0; li < Math.min(lines.size(), 2); li++) {
+                drawFont(ctx, lines.get(li), x + 10, dy, 0xFF9090A8);
+                dy += 12;
             }
 
-            // Settings icon hint
-            if (m.sBuild != null && ha > 0.3f) {
-                int ia = (int)((ha - 0.3f) / 0.7f * 200);
-                ctx.drawTextWithShadow(textRenderer, "\u2699", x + CARD_W - 14, y + CARD_H - 14, applyAlpha(C_TEXT_DIM, ia));
-            }
+            if (ent < 1f) ctx.getMatrices().pop();
         }
     }
 
     private void drawSettings(DrawContext ctx, int mx, int my) {
         int ox = wx + SB_W, oy = wy + HDR_H;
         int ow = W - SB_W, oh = H - HDR_H;
-        ctx.fill(ox, oy, ox + ow, oy + oh, 0xC0101020);
+        ctx.fill(ox, oy, ox + ow, oy + oh, 0xC0080810);
 
-        int pw = 190;
-        int ih = 26;
-        int ph = 32 + sWidgets.size() * ih + 8;
+        int pw = 200, ih = 28;
+        int ph = 38 + sWidgets.size() * ih + 10;
         int px = ox + (ow - pw) / 2;
         int py = oy + (oh - ph) / 2;
 
-        // Panel shadow
-        ctx.fill(px + 3, py + 3, px + pw + 3, py + ph + 3, 0x40000000);
-        // Panel
-        fillRound(ctx, px, py, pw, ph, C_SIDEBAR_BG);
-        ctx.fill(px, py, px + pw, py + 2, C_ACCENT);
-        drawBdr(ctx, px, py, pw, ph, C_DIVIDER);
+        tex(ctx, TEX_SETTINGS, px, py, pw, ph);
 
-        // Title
-        ctx.drawTextWithShadow(textRenderer, settingsModule.name, px + 10, py + 10, C_TEXT);
-        ctx.drawTextWithShadow(textRenderer, "\u00a78\u2715", px + pw - 16, py + 10, C_TEXT_DIM);
+        drawFont(ctx, settingsMod.name, px + 12, py + 12, 0xFFE8E8F0);
+        drawFont(ctx, "\u2715", px + pw - 18, py + 12, 0xFF6E6E88);
 
-        // Widgets
-        int wy2 = py + 28;
-        for (SettingsWidget sw : sWidgets) {
-            sw.x = px + 8; sw.y = wy2; sw.w = pw - 16; sw.h = 22;
-            sw.render(ctx, textRenderer, mx, my);
+        int wy2 = py + 34;
+        for (SWidget sw : sWidgets) {
+            sw.x = px + 12; sw.y = wy2; sw.w = pw - 24; sw.h = 22;
+            sw.render(ctx, this, mx, my);
             wy2 += ih;
         }
 
         // Color preview
-        if (settingsModule.name.equals("\u0426\u0432\u0435\u0442")) {
+        if (settingsMod.name.equals("\u0426\u0432\u0435\u0442")) {
             int c = (prefs.getTintA() << 24) | (prefs.getTintR() << 16) | (prefs.getTintG() << 8) | prefs.getTintB();
-            ctx.fill(px + pw - 28, py + 6, px + pw - 14, py + 20, c);
-            drawBdr(ctx, px + pw - 29, py + 5, 16, 16, C_DIVIDER);
+            ctx.fill(px + pw - 30, py + 8, px + pw - 14, py + 24, c);
         }
+    }
+
+    // Font helper
+    private void drawFont(DrawContext ctx, String text, int x, int y, int color) {
+        ctx.drawTextWithShadow(textRenderer, Text.literal(text).setStyle(fontStyle()), x, y, color);
+    }
+
+    // Text wrapping
+    private List<String> wrapText(String text, int maxW) {
+        List<String> lines = new ArrayList<>();
+        String[] words = text.split(" ");
+        StringBuilder line = new StringBuilder();
+        for (String w : words) {
+            String test = line.length() == 0 ? w : line + " " + w;
+            if (textRenderer.getWidth(Text.literal(test).setStyle(fontStyle())) > maxW && line.length() > 0) {
+                lines.add(line.toString());
+                line = new StringBuilder(w);
+            } else {
+                if (line.length() > 0) line.append(" ");
+                line.append(w);
+            }
+        }
+        if (line.length() > 0) lines.add(line.toString());
+        return lines;
+    }
+
+    // Texture draw helper
+    private static void tex(DrawContext ctx, Identifier id, int x, int y, int w, int h) {
+        ctx.drawTexture(id, x, y, 0, 0, w, h, w, h);
     }
 
     // === INPUT ===
 
     @Override
-    public boolean mouseClicked(double mx, double my, int button) {
+    public boolean mouseClicked(double mx, double my, int btn) {
         int imx = (int) mx, imy = (int) my;
-
-        if (settingsModule != null) {
-            for (SettingsWidget sw : sWidgets) {
-                if (sw.contains(imx, imy)) {
-                    sw.onClick(imx, imy);
-                    if (sw instanceof SSlider) sDrag = sw;
-                    return true;
-                }
+        if (settingsMod != null) {
+            for (SWidget sw : sWidgets) {
+                if (sw.contains(imx, imy)) { sw.onClick(imx); if (sw instanceof SSlider) sDrag = sw; return true; }
             }
-            settingsModule = null; sWidgets.clear();
-            return true;
+            settingsMod = null; sWidgets.clear(); return true;
         }
-
-        // Sidebar
-        for (Category c : cats) {
-            if (imx >= wx && imx < wx + SB_W && imy >= c.ry && imy < c.ry + 26) {
-                activeCat = c;
-                java.util.Arrays.fill(cardHover, 0f);
-                return true;
-            }
+        for (Cat c : cats) {
+            if (imx >= wx && imx < wx + SB_W && imy >= c.ry && imy < c.ry + 28) { activeCat = c; return true; }
         }
-
-        // Cards
         if (activeCat != null) {
-            for (Module m : activeCat.mods) {
+            for (Mod m : activeCat.mods) {
                 if (m.lx < 0) continue;
                 if (imx >= m.lx && imx < m.lx + CARD_W && imy >= m.ly && imy < m.ly + CARD_H) {
-                    if (button == 1 && m.sBuild != null) {
-                        settingsModule = m; m.sBuild.run(); return true;
-                    }
-                    boolean nv = !m.getter.get();
-                    m.setter.accept(nv);
-                    return true;
+                    if (btn == 1 && m.sBuild != null) { settingsMod = m; m.sBuild.run(); return true; }
+                    m.set.accept(!m.get.get()); return true;
                 }
             }
         }
-        return super.mouseClicked(mx, my, button);
+        return super.mouseClicked(mx, my, btn);
     }
 
-    @Override
-    public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) {
-        if (sDrag != null) { sDrag.onDrag((int) mx, (int) my); return true; }
-        return super.mouseDragged(mx, my, btn, dx, dy);
+    @Override public boolean mouseDragged(double mx, double my, int b, double dx, double dy) {
+        if (sDrag != null) { sDrag.onDrag((int) mx); return true; }
+        return super.mouseDragged(mx, my, b, dx, dy);
     }
-
-    @Override
-    public boolean mouseReleased(double mx, double my, int btn) {
-        sDrag = null; return super.mouseReleased(mx, my, btn);
+    @Override public boolean mouseReleased(double mx, double my, int b) { sDrag = null; return super.mouseReleased(mx, my, b); }
+    @Override public boolean keyPressed(int k, int s, int m) {
+        if (settingsMod != null && k == 256) { settingsMod = null; sWidgets.clear(); return true; }
+        return super.keyPressed(k, s, m);
     }
-
-    @Override
-    public boolean keyPressed(int key, int scan, int mod) {
-        if (settingsModule != null && key == 256) { settingsModule = null; sWidgets.clear(); return true; }
-        return super.keyPressed(key, scan, mod);
-    }
-
-    @Override
-    public void close() { prefs.save(); if (client != null) client.setScreen(null); }
-
-    @Override
-    public boolean shouldPause() { return false; }
-
-    // === HELPERS ===
-
-    private String trimToWidth(String s, int maxW) {
-        int w = 0;
-        for (int i = 0; i < s.length(); i++) {
-            w += textRenderer.getWidth(String.valueOf(s.charAt(i)));
-            if (w > maxW) return s.substring(0, Math.max(1, i));
-        }
-        return s;
-    }
+    @Override public void close() { prefs.save(); if (client != null) client.setScreen(null); }
+    @Override public boolean shouldPause() { return false; }
 
     private static float easeOut(float t) { return 1f - (1f - t) * (1f - t); }
 
-    private static void drawBdr(DrawContext ctx, int x, int y, int w, int h, int c) {
-        ctx.fill(x, y, x + w, y + 1, c); ctx.fill(x, y + h - 1, x + w, y + h, c);
-        ctx.fill(x, y, x + 1, y + h, c); ctx.fill(x + w - 1, y, x + w, y + h, c);
-    }
-
-    private static void fillRound(DrawContext ctx, int x, int y, int w, int h, int c) {
-        ctx.fill(x + 3, y, x + w - 3, y + h, c);
-        ctx.fill(x, y + 3, x + 3, y + h - 3, c);
-        ctx.fill(x + w - 3, y + 3, x + w, y + h - 3, c);
-        ctx.fill(x + 1, y + 1, x + 3, y + 3, c); ctx.fill(x + w - 3, y + 1, x + w - 1, y + 3, c);
-        ctx.fill(x + 1, y + h - 3, x + 3, y + h - 1, c); ctx.fill(x + w - 3, y + h - 3, x + w - 1, y + h - 1, c);
-    }
-
-    private static int lerpColor(int a, int b, float t) {
-        t = Math.max(0, Math.min(1, t));
-        return ((int)(ch(a, 24) + (ch(b, 24) - ch(a, 24)) * t) << 24) |
-               ((int)(ch(a, 16) + (ch(b, 16) - ch(a, 16)) * t) << 16) |
-               ((int)(ch(a, 8) + (ch(b, 8) - ch(a, 8)) * t) << 8) |
-                (int)(ch(a, 0) + (ch(b, 0) - ch(a, 0)) * t);
-    }
-    private static int ch(int c, int sh) { return (c >> sh) & 0xFF; }
-
-    private static int applyAlpha(int color, int a) {
-        return (Math.min(255, Math.max(0, a)) << 24) | (color & 0x00FFFFFF);
-    }
-
-    private static int blendAlpha(int color, float t) {
-        int a = (int)(((color >> 24) & 0xFF) * t);
-        return (a << 24) | (color & 0x00FFFFFF);
-    }
-
     // === DATA ===
-
-    static class Category {
-        final String name;
-        final List<Module> mods = new ArrayList<>();
-        int ry;
-        Category(String n) { this.name = n; }
-        void add(Module m) { mods.add(m); }
-    }
-
-    static class Module {
-        final String name, desc;
-        final Supplier<Boolean> getter;
-        final Consumer<Boolean> setter;
-        final Runnable sBuild;
-        int lx = -1, ly;
-        Module(String n, String d, Supplier<Boolean> g, Consumer<Boolean> s, Runnable sb) {
-            name = n; desc = d; getter = g; setter = s; sBuild = sb;
-        }
-    }
+    static class Cat { String name; Identifier icon; List<Mod> mods = new ArrayList<>(); int ry;
+        Cat(String n, Identifier i) { name = n; icon = i; } void add(Mod m) { mods.add(m); } }
+    static class Mod { String name, desc; Supplier<Boolean> get; Consumer<Boolean> set; Runnable sBuild; int lx=-1, ly;
+        Mod(String n, String d, Supplier<Boolean> g, Consumer<Boolean> s, Runnable sb) { name=n; desc=d; get=g; set=s; sBuild=sb; } }
 
     // === SETTINGS WIDGETS ===
-
-    static abstract class SettingsWidget {
-        int x, y, w, h;
-        abstract void render(DrawContext ctx, TextRenderer tr, int mx, int my);
-        void onClick(int mx, int my) {}
-        void onDrag(int mx, int my) {}
-        boolean contains(int mx, int my) { return mx >= x && mx < x + w && my >= y && my < y + h; }
+    static abstract class SWidget { int x,y,w,h;
+        abstract void render(DrawContext ctx, PrefsScreen scr, int mx, int my);
+        void onClick(int mx) {} void onDrag(int mx) {}
+        boolean contains(int mx, int my) { return mx>=x && mx<x+w && my>=y && my<y+h; }
     }
 
-    static class SSlider extends SettingsWidget {
-        final String label; final float min, max; float val;
-        final Consumer<Double> cb; final int color;
-        SSlider(String l, float mn, float mx, float v, Consumer<Double> c, int cl) {
-            label = l; min = mn; max = mx; val = v; cb = c; color = cl;
+    static class SSlider extends SWidget {
+        String label; float min,max,val; Consumer<Double> cb;
+        SSlider(String l, float mn, float mx, float v, Consumer<Double> c) { label=l; min=mn; max=mx; val=v; cb=c; }
+        float frac() { return max<=min?0:Math.max(0,Math.min(1,(val-min)/(max-min))); }
+        void apply(int mx) { float f=Math.max(0,Math.min(1,(mx-x)/(float)w)); val=min+f*(max-min);
+            if(max-min>=1&&max<=255) val=Math.round(val); cb.accept((double)val); }
+        @Override void render(DrawContext ctx, PrefsScreen scr, int mx, int my) {
+            String vs = (max<=255&&max-min>=1) ? ""+(int)val : String.format("%.1f",val);
+            scr.drawFont(ctx, label, x, y+1, 0xFF9090A8);
+            int vw = scr.textRenderer.getWidth(Text.literal(vs).setStyle(fontStyle()));
+            scr.drawFont(ctx, vs, x+w-vw, y+1, 0xFFE8E8F0);
+            int ty=y+14, tw=w;
+            tex(ctx, TEX_SLD_TRK, x, ty, tw, 6);
+            int fw=(int)(frac()*tw);
+            if(fw>0) tex(ctx, TEX_SLD_FILL, x, ty, fw, 6);
+            tex(ctx, TEX_SLD_KNOB, x+fw-6, ty-5, 12, 16);
         }
-        float frac() { return max <= min ? 0 : Math.max(0, Math.min(1, (val - min) / (max - min))); }
-        void apply(int mx) {
-            float f = Math.max(0, Math.min(1, (mx - x - 2) / (float)(w - 4)));
-            val = min + f * (max - min);
-            if (max - min >= 1 && max <= 255) val = Math.round(val);
-            cb.accept((double) val);
-        }
-        @Override void render(DrawContext ctx, TextRenderer tr, int mx, int my) {
-            boolean hov = contains(mx, my);
-            ctx.fill(x, y, x + w, y + h, hov ? 0xFF282840 : 0xFF202038);
-            String vs = (max <= 255 && max - min >= 1) ? "" + (int) val : String.format("%.1f", val);
-            ctx.drawTextWithShadow(tr, label, x + 4, y + 2, C_TEXT_DIM);
-            int vw = tr.getWidth(vs);
-            ctx.drawTextWithShadow(tr, vs, x + w - vw - 4, y + 2, C_TEXT);
-            int ty = y + h - 6, tw = w - 4;
-            ctx.fill(x + 2, ty, x + 2 + tw, ty + 3, C_SLIDER_TRK);
-            int fw = (int)(frac() * tw);
-            if (fw > 0) ctx.fill(x + 2, ty, x + 2 + fw, ty + 3, color);
-            ctx.fill(x + 2 + fw - 3, ty - 2, x + 2 + fw + 3, ty + 5, C_KNOB);
-        }
-        @Override void onClick(int mx, int my) { apply(mx); }
-        @Override void onDrag(int mx, int my) { apply(mx); }
+        @Override void onClick(int mx) { apply(mx); }
+        @Override void onDrag(int mx) { apply(mx); }
     }
 
-    static class SToggle extends SettingsWidget {
-        final String label; final Supplier<Boolean> get; final Consumer<Boolean> set; float anim;
-        SToggle(String l, Supplier<Boolean> g, Consumer<Boolean> s) {
-            label = l; get = g; set = s; anim = g.get() ? 1f : 0f;
-        }
-        @Override void render(DrawContext ctx, TextRenderer tr, int mx, int my) {
+    static class SToggle extends SWidget {
+        String label; Supplier<Boolean> get; Consumer<Boolean> set;
+        SToggle(String l, Supplier<Boolean> g, Consumer<Boolean> s) { label=l; get=g; set=s; }
+        @Override void render(DrawContext ctx, PrefsScreen scr, int mx, int my) {
             boolean on = get.get();
-            float tgt = on ? 1f : 0f;
-            anim += (tgt - anim) * 0.2f;
-            boolean hov = contains(mx, my);
-            ctx.fill(x, y, x + w, y + h, hov ? 0xFF282840 : 0xFF202038);
-            ctx.drawTextWithShadow(tr, label, x + 4, y + 7, on ? C_TEXT : C_TEXT_DIM);
-            int tw2 = 24, th = 12, tx = x + w - tw2 - 4, ty = y + 5;
-            ctx.fill(tx, ty, tx + tw2, ty + th, lerpColor(C_TOGGLE_OFF, C_TOGGLE_ON, anim));
-            int kd = th - 4, kr = tw2 - kd - 4, kx = tx + 2 + (int)(anim * kr);
-            ctx.fill(kx, ty + 2, kx + kd, ty + 2 + kd, C_KNOB);
+            scr.drawFont(ctx, label, x, y+5, on ? 0xFFE8E8F0 : 0xFF9090A8);
+            tex(ctx, on ? TEX_TOG_ON : TEX_TOG_OFF, x+w-36, y+1, 36, 20);
         }
-        @Override void onClick(int mx, int my) { set.accept(!get.get()); }
+        @Override void onClick(int mx) { set.accept(!get.get()); }
     }
 }
