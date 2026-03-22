@@ -20,6 +20,9 @@ public class PrefsScreen extends Screen {
     private boolean rgbMode;
     private float rgbSpeed;
     private boolean healthBars;
+    private float zoomStrength;
+    private boolean trailEnabled;
+    private int trailLength;
     private boolean filterPlayers;
     private boolean filterMobs;
     private boolean filterDrops;
@@ -36,6 +39,9 @@ public class PrefsScreen extends Screen {
         this.rgbMode = prefs.isRgbMode();
         this.rgbSpeed = prefs.getRgbSpeed();
         this.healthBars = prefs.isHealthBars();
+        this.zoomStrength = prefs.getZoomStrength();
+        this.trailEnabled = prefs.isTrailEnabled();
+        this.trailLength = prefs.getTrailLength();
         this.filterPlayers = prefs.isFilterPlayers();
         this.filterMobs = prefs.isFilterMobs();
         this.filterDrops = prefs.isFilterDrops();
@@ -117,6 +123,29 @@ public class PrefsScreen extends Screen {
                 (btn, val) -> healthBars = val));
         y += 24;
 
+        // === ZOOM ===
+
+        addDrawableChild(new ValueSlider(left, y, w, 20,
+            1.5, 10.0, zoomStrength,
+            val -> Text.literal("\u00a7b\u0417\u0443\u043c (C): " + String.format("%.1fx", val)),
+            val -> zoomStrength = val.floatValue()));
+        y += 24;
+
+        // === TRAIL ===
+
+        addDrawableChild(CyclingButtonWidget.onOffBuilder(
+                Text.literal("\u00a7a\u0412\u041a\u041b"), Text.literal("\u00a7c\u0412\u042b\u041a\u041b"))
+            .initially(trailEnabled)
+            .build(left, y, w / 2 - 2, 20,
+                Text.literal("\u00a7e\u0421\u043b\u0435\u0434"),
+                (btn, val) -> trailEnabled = val));
+
+        addDrawableChild(new ValueSlider(left + w / 2 + 2, y, w / 2 - 2, 20,
+            10, 200, trailLength,
+            val -> Text.literal("\u00a7e\u0414\u043b\u0438\u043d\u0430: " + val.intValue()),
+            val -> trailLength = val.intValue()));
+        y += 24;
+
         // === FILTERS ===
 
         int btnW = 66;
@@ -188,6 +217,9 @@ public class PrefsScreen extends Screen {
         prefs.setRgbMode(rgbMode);
         prefs.setRgbSpeed(rgbSpeed);
         prefs.setHealthBars(healthBars);
+        prefs.setZoomStrength(zoomStrength);
+        prefs.setTrailEnabled(trailEnabled);
+        prefs.setTrailLength(trailLength);
         prefs.setFilterPlayers(filterPlayers);
         prefs.setFilterMobs(filterMobs);
         prefs.setFilterDrops(filterDrops);

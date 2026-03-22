@@ -6,7 +6,8 @@
     "RenderPassMixin",
     "KeyboardMixin",
     "InteractionGuardMixin",
-    "InputTimingMixin"
+    "InputTimingMixin",
+    "ZoomMixin"
   ],
   "injectors": {
     "defaultRequire": 1

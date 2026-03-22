@@ -31,6 +31,9 @@ public class DisplayPrefs {
     private boolean rgbMode;
     private float rgbSpeed;
     private boolean healthBars;
+    private float zoomStrength;
+    private boolean trailEnabled;
+    private int trailLength;
 
     private DisplayPrefs() {
         this.active = false;
@@ -49,6 +52,9 @@ public class DisplayPrefs {
         this.rgbMode = false;
         this.rgbSpeed = 1.0f;
         this.healthBars = true;
+        this.zoomStrength = 4.0f;
+        this.trailEnabled = false;
+        this.trailLength = 60;
     }
 
     public static DisplayPrefs defaults() {
@@ -75,6 +81,9 @@ public class DisplayPrefs {
         obj.addProperty("rb", rgbMode);
         obj.addProperty("rs", rgbSpeed);
         obj.addProperty("hb", healthBars);
+        obj.addProperty("zs", zoomStrength);
+        obj.addProperty("te", trailEnabled);
+        obj.addProperty("tl", trailLength);
         return obj;
     }
 
@@ -96,6 +105,9 @@ public class DisplayPrefs {
         if (obj.has("rb")) prefs.rgbMode = obj.get("rb").getAsBoolean();
         if (obj.has("rs")) prefs.rgbSpeed = obj.get("rs").getAsFloat();
         if (obj.has("hb")) prefs.healthBars = obj.get("hb").getAsBoolean();
+        if (obj.has("zs")) prefs.zoomStrength = obj.get("zs").getAsFloat();
+        if (obj.has("te")) prefs.trailEnabled = obj.get("te").getAsBoolean();
+        if (obj.has("tl")) prefs.trailLength = obj.get("tl").getAsInt();
         return prefs;
     }
 
@@ -150,6 +162,9 @@ public class DisplayPrefs {
     public boolean isRgbMode() { return rgbMode; }
     public float getRgbSpeed() { return rgbSpeed; }
     public boolean isHealthBars() { return healthBars; }
+    public float getZoomStrength() { return zoomStrength; }
+    public boolean isTrailEnabled() { return trailEnabled; }
+    public int getTrailLength() { return trailLength; }
     // --- Setters ---
 
     public void setActive(boolean val) { this.active = val; }
@@ -168,6 +183,9 @@ public class DisplayPrefs {
     public void setRgbMode(boolean val) { this.rgbMode = val; }
     public void setRgbSpeed(float val) { this.rgbSpeed = clamp(val, 0.1f, 5.0f); }
     public void setHealthBars(boolean val) { this.healthBars = val; }
+    public void setZoomStrength(float val) { this.zoomStrength = clamp(val, 1.5f, 10.0f); }
+    public void setTrailEnabled(boolean val) { this.trailEnabled = val; }
+    public void setTrailLength(int val) { this.trailLength = clamp(val, 10, 200); }
     // --- Utility ---
 
     private static float clamp(float val, float min, float max) {
