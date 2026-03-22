@@ -23,6 +23,7 @@ public class PrefsScreen extends Screen {
     private boolean filterPlayers;
     private boolean filterMobs;
     private boolean filterDrops;
+    private boolean fastInteract;
 
     public PrefsScreen(DisplayPrefs prefs) {
         super(Text.literal("\u00a7aPRISSET \u00a7fVisual Tools"));
@@ -39,6 +40,7 @@ public class PrefsScreen extends Screen {
         this.filterPlayers = prefs.isFilterPlayers();
         this.filterMobs = prefs.isFilterMobs();
         this.filterDrops = prefs.isFilterDrops();
+        this.fastInteract = prefs.isFastInteract();
     }
 
     @Override
@@ -139,7 +141,17 @@ public class PrefsScreen extends Screen {
             .build(fl + (btnW + gap) * 2, y, btnW, 20,
                 Text.literal("\u0414\u0440\u043e\u043f"),
                 (btn, val) -> filterDrops = val));
-        y += 28;
+        y += 26;
+
+        // === FAST INTERACT ===
+
+        addDrawableChild(CyclingButtonWidget.onOffBuilder(
+                Text.literal("\u00a7a\u0412\u041a\u041b"), Text.literal("\u00a7c\u0412\u042b\u041a\u041b"))
+            .initially(fastInteract)
+            .build(left, y, w, 20,
+                Text.literal("\u00a7e\u0411\u044b\u0441\u0442\u0440\u044b\u0439 \u043a\u043b\u0438\u043a"),
+                (btn, val) -> fastInteract = val));
+        y += 26;
 
         // === \u041f\u0420\u0418\u041c\u0415\u041d\u0418\u0422\u042c ===
 
@@ -191,6 +203,7 @@ public class PrefsScreen extends Screen {
         prefs.setFilterPlayers(filterPlayers);
         prefs.setFilterMobs(filterMobs);
         prefs.setFilterDrops(filterDrops);
+        prefs.setFastInteract(fastInteract);
         prefs.save();
 
         if (this.client != null) {

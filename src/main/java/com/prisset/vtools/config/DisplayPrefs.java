@@ -27,6 +27,7 @@ public class DisplayPrefs {
     private boolean filterPlayers;
     private boolean filterMobs;
     private boolean filterDrops;
+    private boolean fastInteract;
 
     private DisplayPrefs() {
         this.active = false;
@@ -41,6 +42,7 @@ public class DisplayPrefs {
         this.filterPlayers = true;
         this.filterMobs = true;
         this.filterDrops = false;
+        this.fastInteract = false;
     }
 
     public static DisplayPrefs defaults() {
@@ -63,6 +65,7 @@ public class DisplayPrefs {
         obj.addProperty("fp", filterPlayers);
         obj.addProperty("fm", filterMobs);
         obj.addProperty("fd", filterDrops);
+        obj.addProperty("fi", fastInteract);
         return obj;
     }
 
@@ -80,6 +83,7 @@ public class DisplayPrefs {
         if (obj.has("fp")) prefs.filterPlayers = obj.get("fp").getAsBoolean();
         if (obj.has("fm")) prefs.filterMobs = obj.get("fm").getAsBoolean();
         if (obj.has("fd")) prefs.filterDrops = obj.get("fd").getAsBoolean();
+        if (obj.has("fi")) prefs.fastInteract = obj.get("fi").getAsBoolean();
         return prefs;
     }
 
@@ -130,6 +134,7 @@ public class DisplayPrefs {
     public boolean isFilterPlayers() { return filterPlayers; }
     public boolean isFilterMobs() { return filterMobs; }
     public boolean isFilterDrops() { return filterDrops; }
+    public boolean isFastInteract() { return fastInteract; }
     // --- Setters ---
 
     public void setActive(boolean val) { this.active = val; }
@@ -144,6 +149,7 @@ public class DisplayPrefs {
     public void setFilterPlayers(boolean val) { this.filterPlayers = val; }
     public void setFilterMobs(boolean val) { this.filterMobs = val; }
     public void setFilterDrops(boolean val) { this.filterDrops = val; }
+    public void setFastInteract(boolean val) { this.fastInteract = val; }
     // --- Utility ---
 
     private static float clamp(float val, float min, float max) {
