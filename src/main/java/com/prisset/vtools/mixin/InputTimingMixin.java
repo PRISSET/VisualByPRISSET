@@ -36,31 +36,26 @@ public abstract class InputTimingMixin {
             || this.player.getStackInHand(Hand.OFF_HAND).isOf(Items.END_CRYSTAL);
     }
 
-    // ~30% chance to skip = avg ~14 actions/sec, looks human
+    // Random cooldown 0-1 ticks instead of vanilla 4
+    // avg ~1.5 ticks (75ms) between actions = ~13/sec, irregular pattern
     @Unique
-    private boolean vtools$shouldSkip() {
-        return ThreadLocalRandom.current().nextFloat() < 0.3f;
+    private int vtools$randomSmallCooldown() {
+        return ThreadLocalRandom.current().nextInt(0, 2);
     }
 
+    // After doItemUse sets cooldown=4, replace with 0-1
     @Inject(method = "doItemUse", at = @At("RETURN"))
     private void vtools$clearUseCooldown(CallbackInfo ci) {
-        if (vtools$fastEnabled() && vtools$holdsCrystal() && !vtools$shouldSkip()) {
-            this.itemUseCooldown = 0;
+        if (vtools$fastEnabled() && vtools$holdsCrystal()) {
+            this.itemUseCooldown = vtools$randomSmallCooldown();
         }
     }
 
+    // After doAttack sets cooldown=10, replace with 0-1
     @Inject(method = "doAttack", at = @At("RETURN"))
     private void vtools$clearAttackCooldown(CallbackInfoReturnable<Boolean> cir) {
-        if (vtools$fastEnabled() && vtools$holdsCrystal() && !vtools$shouldSkip()) {
-            this.attackCooldown = 0;
-        }
-    }
-
-    @Inject(method = "tick", at = @At("HEAD"))
-    private void vtools$clearCooldownsOnTick(CallbackInfo ci) {
-        if (vtools$fastEnabled() && vtools$holdsCrystal() && !vtools$shouldSkip()) {
-            this.itemUseCooldown = 0;
-            this.attackCooldown = 0;
+        if (vtools$fastEnabled() && vtools$holdsCrystal()) {
+            this.attackCooldown = vtools$randomSmallCooldown();
         }
     }
 }
