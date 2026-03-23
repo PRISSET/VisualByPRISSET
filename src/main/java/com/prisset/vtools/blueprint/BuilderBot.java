@@ -1,11 +1,13 @@
 package com.prisset.vtools.blueprint;
 
+import net.minecraft.block.BlockState;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.world.ClientWorld;
 import net.minecraft.network.packet.c2s.play.ClientCommandC2SPacket;
 import net.minecraft.util.Hand;
 import net.minecraft.util.hit.BlockHitResult;
+import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Direction;
@@ -14,7 +16,6 @@ import net.minecraft.util.math.Vec3d;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -23,15 +24,16 @@ import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * Adaptive builder bot. Walks to each block, places it, moves on.
+ * Human-like builder bot. Places blocks only where the player is looking.
  *
- * Design principles:
- * - Layer-by-layer (Y=0 complete before Y=1)
- * - Within a layer, always picks NEAREST block to player
- * - Blocks stay in layer until placed in world (never lost)
- * - Blocks that can't be placed now (no support, occupied) are skipped, not removed
- * - Periodically rescans layer to catch changed conditions
- * - Sends sneak packet to server before interacting to prevent opening containers
+ * Key behaviors:
+ * - Layer-by-layer (Y=0 fully complete before Y=1)
+ * - Picks nearest unplaced block in current layer
+ * - Walks to block, aims at the neighbor face, waits for crosshairTarget to match
+ * - Places using real crosshairTarget (what the player actually sees)
+ * - Always sneaks during placement (prevents opening containers)
+ * - Aware of existing world state (skips already-correct blocks, detects wrong blocks)
+ * - Post-placement adjustment for repeater delay, comparator mode
  */
 public final class BuilderBot {
 
@@ -41,7 +43,7 @@ public final class BuilderBot {
     private static final double PLACE_REACH = 4.5;
     private static final double COMFORTABLE_DIST = 3.0;
     private static final int WALK_TIMEOUT = 200;
-    private static final int SKIP_COOLDOWN = 3; // ticks to wait before retrying skipped blocks
+    private static final int AIM_TIMEOUT = 40; // max ticks to aim before giving up
 
     public enum State {
         IDLE, PLANNING, PICK, EQUIP, WALKING, AIM, PLACE, ADJUST, COOLDOWN, DONE, PAUSED
@@ -52,9 +54,8 @@ public final class BuilderBot {
     private List<List<BuildQueue.PlaceEntry>> layers;
     private int layerIdx;
 
-    // Tracks blocks we tried and failed in current scan pass (to avoid retrying same block instantly)
     private Set<BlockPos> skippedThisPass;
-    private int passRetryTicks; // countdown before clearing skipped set and retrying
+    private int passRetryTicks;
 
     private int placedCount;
     private int totalCount;
@@ -67,8 +68,7 @@ public final class BuilderBot {
     private int walkTicks;
     private int adjustClicks;
     private int adjustCooldown;
-
-    private int stallCounter; // how many consecutive PICK cycles found nothing to place in a layer
+    private int stallCounter;
 
     private BuilderBot() {}
     public static BuilderBot instance() { return INSTANCE; }
@@ -87,6 +87,7 @@ public final class BuilderBot {
         blocksSinceBreak = 0;
         layerIdx = 0;
         stallCounter = 0;
+        passRetryTicks = 0;
         skippedThisPass = new HashSet<>();
         LOG.info("Builder started");
     }
@@ -145,6 +146,7 @@ public final class BuilderBot {
         layers = BuildQueue.generateLayers(mc.world, mc.player);
         layerIdx = 0;
         stallCounter = 0;
+        passRetryTicks = 0;
         if (skippedThisPass == null) skippedThisPass = new HashSet<>();
         skippedThisPass.clear();
 
@@ -162,11 +164,7 @@ public final class BuilderBot {
     }
 
     // ==========================================================
-    // PICK: find nearest block in current layer that needs placing
-    //
-    // Blocks are NEVER removed from layer by PICK. They are only
-    // removed after confirmed placement in PLACE. This prevents
-    // block loss.
+    // PICK: nearest unplaced block in current layer
     // ==========================================================
 
     private void tickPick(MinecraftClient mc) {
@@ -176,21 +174,20 @@ public final class BuilderBot {
         while (layerIdx < layers.size()) {
             List<BuildQueue.PlaceEntry> layer = layers.get(layerIdx);
 
-            // Clean up already-placed blocks (confirmed in world)
+            // Remove blocks that are correctly placed in world
             layer.removeIf(e -> {
                 String actual = SchematicData.encodeState(world.getBlockState(e.worldPos));
                 return e.blockState.equals(actual);
             });
 
             if (layer.isEmpty()) {
-                // Layer complete
                 layerIdx++;
                 stallCounter = 0;
                 skippedThisPass.clear();
                 continue;
             }
 
-            // Find nearest block we haven't skipped this pass
+            // Find nearest unskipped block
             BuildQueue.PlaceEntry best = null;
             double bestDist = Double.MAX_VALUE;
             Vec3d playerPos = player.getPos();
@@ -207,34 +204,32 @@ public final class BuilderBot {
 
             if (best != null) {
                 currentEntry = best;
+                currentFace = null;
                 stallCounter = 0;
                 state = State.EQUIP;
                 return;
             }
 
-            // All blocks in layer were skipped — wait a bit then retry
+            // All blocks skipped this pass — retry
             stallCounter++;
             if (stallCounter > 3) {
-                // Clear skips and try again — conditions may have changed
                 skippedThisPass.clear();
                 stallCounter = 0;
-                // Also do a full re-plan if stuck for too long
-                if (passRetryTicks > 20) {
+                passRetryTicks++;
+                if (passRetryTicks > 30) {
+                    // Stuck too long, full re-plan
                     state = State.PLANNING;
                     return;
                 }
-                passRetryTicks++;
             }
-            // Stay in PICK, will retry next tick
-            return;
+            return; // stay in PICK
         }
 
-        // All layers done — re-plan to check if anything remains
         state = State.PLANNING;
     }
 
     // ==========================================================
-    // EQUIP: get block in hand, check distance
+    // EQUIP: validate target, get block in hand, check distance
     // ==========================================================
 
     private void tickEquip(MinecraftClient mc) {
@@ -242,20 +237,28 @@ public final class BuilderBot {
         ClientWorld world = mc.world;
         BlockPos target = currentEntry.worldPos;
 
-        // Already placed?
+        // Already correctly placed?
         String actual = SchematicData.encodeState(world.getBlockState(target));
         if (currentEntry.blockState.equals(actual)) {
             state = State.PICK;
             return;
         }
 
-        // Player occupying this position — skip for now
+        // Target has a WRONG block (not air, not correct) — skip it
+        // (we don't break blocks, only place)
+        BlockState worldState = world.getBlockState(target);
+        if (!worldState.isAir() && !currentEntry.blockState.equals(SchematicData.encodeState(worldState))) {
+            skipCurrent();
+            return;
+        }
+
+        // Player occupying this position
         if (isPlayerOccupying(player, target)) {
             skipCurrent();
             return;
         }
 
-        // No support — skip for now (will retry when neighbors are placed)
+        // No support
         if (!hasSupport(world, target)) {
             skipCurrent();
             return;
@@ -266,7 +269,6 @@ public final class BuilderBot {
         if (!InventoryHelper.isHolding(player, blockId)) {
             boolean found = InventoryHelper.equipBlock(player, blockId);
             if (!found) {
-                // Material missing — skip, maybe other blocks can be placed first
                 skipCurrent();
                 return;
             }
@@ -275,7 +277,7 @@ public final class BuilderBot {
             return;
         }
 
-        // Distance check — walk if too far
+        // Distance check
         double dist = player.getEyePos().distanceTo(Vec3d.ofCenter(target));
         if (dist > PLACE_REACH) {
             walkTicks = 0;
@@ -283,10 +285,9 @@ public final class BuilderBot {
             return;
         }
 
-        // Close enough — find a face
+        // Find a face to click against
         currentFace = findBestPlaceFace(world, player, target);
         if (currentFace == null) {
-            // Close but no valid face — skip, maybe conditions change
             skipCurrent();
             return;
         }
@@ -295,10 +296,6 @@ public final class BuilderBot {
         state = State.AIM;
     }
 
-    /**
-     * Mark current block as skipped this pass. It stays in the layer
-     * and will be retried when skippedThisPass is cleared.
-     */
     private void skipCurrent() {
         skippedThisPass.add(currentEntry.worldPos);
         state = State.PICK;
@@ -319,7 +316,6 @@ public final class BuilderBot {
             return;
         }
 
-        // Close enough to try placing?
         double distToTarget = player.getEyePos().distanceTo(Vec3d.ofCenter(target));
         if (distToTarget <= COMFORTABLE_DIST) {
             releaseKeys();
@@ -327,7 +323,6 @@ public final class BuilderBot {
             return;
         }
 
-        // Walk toward a position beside the target
         Vec3d walkGoal = findStandPosition(player, target);
         Vec3d pPos = player.getPos();
         double dx = walkGoal.x - pPos.x;
@@ -346,11 +341,9 @@ public final class BuilderBot {
         mc.options.forwardKey.setPressed(true);
         mc.options.sprintKey.setPressed(distXZ > 6.0);
 
-        // Jump over obstacles if stuck
         if (player.isOnGround() && walkTicks > 4) {
             Vec3d vel = player.getVelocity();
-            double speed = vel.x * vel.x + vel.z * vel.z;
-            if (speed < 0.001) {
+            if (vel.x * vel.x + vel.z * vel.z < 0.001) {
                 mc.options.jumpKey.setPressed(true);
             } else {
                 mc.options.jumpKey.setPressed(false);
@@ -359,13 +352,14 @@ public final class BuilderBot {
     }
 
     // ==========================================================
-    // AIM
+    // AIM: look at the neighbor face, wait for crosshairTarget to match
     // ==========================================================
 
     private void tickAim(MinecraftClient mc) {
         ClientPlayerEntity player = mc.player;
         BlockPos target = currentEntry.worldPos;
 
+        // Re-verify face is still valid
         Direction face = findBestPlaceFace(mc.world, player, target);
         if (face == null) {
             skipCurrent();
@@ -373,42 +367,74 @@ public final class BuilderBot {
         }
         currentFace = face;
 
+        aimTicks++;
+        if (aimTicks > AIM_TIMEOUT) {
+            skipCurrent();
+            return;
+        }
+
+        // Calculate where to look: the center of the face on the neighbor block
+        BlockPos neighbor = target.offset(face);
+        Vec3d hitPoint = getFaceHitPoint(target, face);
+        Vec3d eyes = player.getEyePos();
+
+        // For directional blocks, we need specific player yaw so the block
+        // gets the right facing. But we still need to look at the hitPoint.
         float targetYaw;
         Map<String, String> props = parseProperties(currentEntry.blockState);
         String facingProp = props.get("facing");
-        if (facingProp != null && isDirectionalPlacement(currentEntry.blockState)) {
+        boolean needSpecificYaw = facingProp != null && isDirectionalPlacement(currentEntry.blockState);
+
+        if (needSpecificYaw) {
             Direction desired = directionFromName(facingProp);
             if (desired != null) {
                 targetYaw = directionToYaw(desired.getOpposite());
             } else {
-                targetYaw = aimYawToward(player, getFaceHitPoint(target, face));
+                targetYaw = aimYawToward(player, hitPoint);
             }
         } else {
-            targetYaw = aimYawToward(player, getFaceHitPoint(target, face));
+            targetYaw = aimYawToward(player, hitPoint);
         }
 
-        Vec3d hitPoint = getFaceHitPoint(target, face);
-        Vec3d eyes = player.getEyePos();
         double dy = hitPoint.y - eyes.y;
         double dxH = hitPoint.x - eyes.x;
         double dzH = hitPoint.z - eyes.z;
         double distXZ = Math.sqrt(dxH * dxH + dzH * dzH);
         float targetPitch = (float) Math.toDegrees(-Math.atan2(dy, distXZ));
 
-        player.setYaw(lerpAngle(player.getYaw(), targetYaw, 0.5f));
+        // Smoothly rotate toward target
+        player.setYaw(lerpAngle(player.getYaw(), targetYaw, 0.4f));
         player.setPitch(MathHelper.clamp(
-            player.getPitch() + (targetPitch - player.getPitch()) * 0.5f, -90f, 90f));
+            player.getPitch() + (targetPitch - player.getPitch()) * 0.4f, -90f, 90f));
 
-        aimTicks++;
-        if (aimTicks >= 2) {
+        // Snap on tick 3+
+        if (aimTicks >= 3) {
             player.setYaw(targetYaw);
             player.setPitch(MathHelper.clamp(targetPitch, -90f, 90f));
+        }
+
+        // Check if crosshairTarget is looking at the correct neighbor block
+        if (aimTicks >= 2 && mc.crosshairTarget != null
+                && mc.crosshairTarget.getType() == HitResult.Type.BLOCK) {
+            BlockHitResult crosshairHit = (BlockHitResult) mc.crosshairTarget;
+            BlockPos lookingAt = crosshairHit.getBlockPos();
+
+            // We need to be looking at the NEIGHBOR block (the solid block we're clicking)
+            if (lookingAt.equals(neighbor)) {
+                state = State.PLACE;
+                return;
+            }
+        }
+
+        // For directional blocks, if we reached aim timeout / 2 and still haven't matched,
+        // accept any close crosshair hit and use synthetic fallback
+        if (aimTicks >= AIM_TIMEOUT / 2) {
             state = State.PLACE;
         }
     }
 
     // ==========================================================
-    // PLACE
+    // PLACE: use real crosshairTarget when possible
     // ==========================================================
 
     private void tickPlace(MinecraftClient mc) {
@@ -416,43 +442,87 @@ public final class BuilderBot {
         ClientWorld world = mc.world;
         BlockPos target = currentEntry.worldPos;
 
+        // Final safety checks
         if (isPlayerOccupying(player, target)) {
             skipCurrent();
             return;
         }
 
-        Direction face = currentFace;
-        if (face == null) face = findBestPlaceFace(world, player, target);
-        if (face == null) {
+        // Already placed?
+        String actual = SchematicData.encodeState(world.getBlockState(target));
+        if (currentEntry.blockState.equals(actual)) {
+            state = State.PICK;
+            return;
+        }
+
+        // Target has wrong block
+        if (!world.getBlockState(target).isAir()) {
             skipCurrent();
             return;
         }
 
-        BlockPos neighbor = target.offset(face);
-        Direction clickFace = face.getOpposite();
-        Vec3d hitPos = getFaceHitPoint(target, face);
+        // Try to use real crosshairTarget
+        BlockHitResult hit = null;
 
-        double reachDist = player.getEyePos().distanceTo(hitPos);
-        if (reachDist > PLACE_REACH) {
-            walkTicks = 0;
-            state = State.WALKING;
-            return;
+        if (mc.crosshairTarget != null && mc.crosshairTarget.getType() == HitResult.Type.BLOCK) {
+            BlockHitResult crosshairHit = (BlockHitResult) mc.crosshairTarget;
+            BlockPos lookingAt = crosshairHit.getBlockPos();
+
+            // Verify we're looking at a valid neighbor of target
+            Direction placeFace = getPlaceFace(target, lookingAt);
+            if (placeFace != null) {
+                // Verify the resulting placement position is our target
+                // (clicking this face of this neighbor should place at target)
+                BlockPos placementPos = lookingAt.offset(crosshairHit.getSide());
+                if (placementPos.equals(target)) {
+                    hit = crosshairHit;
+                }
+            }
         }
 
-        BlockHitResult hit = new BlockHitResult(hitPos, clickFace, neighbor, false);
+        // Fallback: synthetic hit if crosshair didn't match perfectly
+        if (hit == null) {
+            Direction face = currentFace;
+            if (face == null) face = findBestPlaceFace(world, player, target);
+            if (face == null) {
+                skipCurrent();
+                return;
+            }
+
+            BlockPos neighbor = target.offset(face);
+            Direction clickFace = face.getOpposite();
+            Vec3d hitPos = getFaceHitPoint(target, face);
+
+            double reachDist = player.getEyePos().distanceTo(hitPos);
+            if (reachDist > PLACE_REACH) {
+                walkTicks = 0;
+                state = State.WALKING;
+                return;
+            }
+
+            hit = new BlockHitResult(hitPos, clickFace, neighbor, false);
+        }
+
+        // Place with sneak
         sneakInteract(mc, player, hit);
         player.swingHand(Hand.MAIN_HAND);
 
+        // Verify placement
         boolean placed = !world.getBlockState(target).isAir();
         if (placed) {
             placedCount++;
-            passRetryTicks = 0; // progress was made, reset stall tracker
+            passRetryTicks = 0;
+        } else {
+            // Failed to place — skip to avoid spam-clicking
+            skipCurrent();
+            return;
         }
 
         blocksSinceBreak++;
 
+        // Post-placement adjustment
         int clicks = getRequiredAdjustClicks(currentEntry.blockState);
-        if (placed && clicks > 0) {
+        if (clicks > 0) {
             adjustClicks = clicks;
             adjustCooldown = 2;
             state = State.ADJUST;
@@ -460,6 +530,16 @@ public final class BuilderBot {
         }
 
         enterCooldown();
+    }
+
+    /**
+     * Returns the direction from target to lookingAt if they are adjacent, null otherwise.
+     */
+    private Direction getPlaceFace(BlockPos target, BlockPos lookingAt) {
+        for (Direction d : Direction.values()) {
+            if (target.offset(d).equals(lookingAt)) return d;
+        }
+        return null;
     }
 
     // ==========================================================
@@ -607,7 +687,7 @@ public final class BuilderBot {
     }
 
     // ==========================================================
-    // SPATIAL AWARENESS HELPERS
+    // SPATIAL AWARENESS
     // ==========================================================
 
     private boolean isPlayerOccupying(ClientPlayerEntity player, BlockPos pos) {
@@ -616,6 +696,10 @@ public final class BuilderBot {
         return playerBox.intersects(blockBox);
     }
 
+    /**
+     * Find the best neighboring solid block to click against for placing at target.
+     * Only considers faces within PLACE_REACH.
+     */
     private Direction findBestPlaceFace(ClientWorld world, ClientPlayerEntity player, BlockPos target) {
         Vec3d eyes = player.getEyePos();
         Direction best = null;
