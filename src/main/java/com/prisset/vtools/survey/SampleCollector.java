@@ -109,8 +109,15 @@ public final class SampleCollector {
     private final Deque<BlockPos> breakQueue = new ArrayDeque<>();
     private BlockPos currentBreakTarget;
 
-    // Descend
+    // Descend -- staircase state machine
+    // Phase 0: MINE_STEP -- break blocks for next stair step
+    // Phase 1: WALK_STEP -- walk into the gap (drop 1 Y)
+    // Phase 2: SETTLE    -- landed, pause before next step
     private int descPhase;
+    private int descSettleTicks;
+    private int descStuckTicks;
+    private int descLastY;
+    private int descWalkTicks;
 
     // Counters
     private final Map<String, Integer> minedCounts = new HashMap<>();
@@ -134,6 +141,10 @@ public final class SampleCollector {
         this.ticksSinceLastIdle = 0;
         this.cooldown = 0;
         this.descPhase = 0;
+        this.descSettleTicks = 0;
+        this.descStuckTicks = 0;
+        this.descLastY = Integer.MIN_VALUE;
+        this.descWalkTicks = 0;
         this.totalBlocksMined = 0;
         this.breakQueue.clear();
         this.minedCounts.clear();
@@ -188,6 +199,13 @@ public final class SampleCollector {
         // Safety checks (always)
         if (SessionGuard.checkAndDisconnect(mc, prefs.getSurveyRadius())) { stop(); return; }
         if (allGoalsMet(prefs)) { leave(mc); return; }
+
+        // Fluid emergency: if player is standing in water or lava, abort
+        if (WalkHelper.hasDangerousFluid(world, player.getBlockPos())
+                || WalkHelper.hasDangerousFluid(world, player.getBlockPos().up())) {
+            leave(mc);
+            return;
+        }
 
         // Camera jitter ALWAYS (even during idle/cooldown)
         aim.tick(player, sessionTicks);
@@ -288,8 +306,9 @@ public final class SampleCollector {
         BlockPos aFeet = feet.offset(mainDir);
         BlockPos aHead = aFeet.up();
 
-        // Lava check
-        if (MaterialIndex.hasAdjacentLava(world, aFeet) || MaterialIndex.hasAdjacentLava(world, aHead)) {
+        // Fluid safety: lava or water ahead = stop
+        if (MaterialIndex.hasAdjacentDangerousFluid(world, aFeet)
+                || MaterialIndex.hasAdjacentDangerousFluid(world, aHead)) {
             leave(mc);
             return;
         }
@@ -386,10 +405,19 @@ public final class SampleCollector {
         aim.face(player, walkYaw, 4f);
 
         if (!walker.startWalk(player, world, mainDir, blocks)) {
-            // Unsafe ahead
+            // Unsafe ahead: check if it's a fluid problem or just needs descent
+            BlockPos aheadFeet = player.getBlockPos().offset(mainDir);
+            if (WalkHelper.hasDangerousFluid(world, aheadFeet)
+                    || WalkHelper.hasDangerousFluid(world, aheadFeet.up())) {
+                // Fluid in the way, abort
+                leave(mc);
+                return;
+            }
             if (!reachedTargetY || Math.abs(player.getBlockPos().getY() - targetY) > 3) {
                 state = State.DESCENDING;
                 descPhase = 0;
+                descStuckTicks = 0;
+                descWalkTicks = 0;
             } else {
                 leave(mc);
             }
@@ -417,86 +445,173 @@ public final class SampleCollector {
         }
     }
 
+    /**
+     * Staircase descent/ascent -- works from surface or underground.
+     *
+     * Going DOWN (staircase pattern):
+     *   Stand at (X, Y). Need to reach lower Y.
+     *   1. MINE_STEP: break block at (ahead) and (ahead.down) to create a 1-deep step.
+     *      Also break (ahead.up) if solid (head clearance).
+     *   2. WALK_STEP: walk forward into the gap. Player drops 1 block.
+     *   3. SETTLE: pause, repeat.
+     *
+     * Going UP:
+     *   1. MINE_STEP: break (ahead), (ahead.up), (ahead.up(2)) for head clearance.
+     *   2. WALK_STEP: jump-walk forward. Player rises 1 block.
+     *   3. SETTLE: pause, repeat.
+     */
     private void tickDescending(MinecraftClient mc, ClientPlayerEntity player,
                                  ClientWorld world, DisplayPrefs prefs, float fatigueSpeed) {
         int curY = player.getBlockPos().getY();
         int adjustedY = pathPlanner.adjustedY(targetY, sessionTicks);
 
+        // Reached target Y-level
         if (Math.abs(curY - adjustedY) <= 3) {
             reachedTargetY = true;
             walker.stopWalking();
+            walker.wantForward = 0;
+            walker.wantJump = false;
             state = State.SCANNING;
             cooldown = HumanTiming.fatigued(HumanTiming.descPause(), fatigueSpeed);
             return;
         }
 
         boolean down = curY > adjustedY;
+        BlockPos feet = player.getBlockPos();
+        BlockPos ahead = feet.offset(mainDir);
 
-        if (descPhase == 0) {
-            // Break staircase blocks
-            walker.wantForward = 0;
-            walker.wantJump = false;
-
-            if (breaker.hasTarget()) {
-                aim.aimAt(player, breaker.getTarget());
-                breaker.tick(player, world);
-                if (breaker.isDone()) {
-                    trackOre(world, breaker.getTarget());
-                    totalBlocksMined++;
-                    breaker.acknowledge();
-                    cooldown = HumanTiming.fatigued(HumanTiming.breakToBreak(), fatigueSpeed);
-                }
-                return;
-            }
-
-            if (pickFromQueue(player, world)) return;
-
-            // Queue staircase blocks
-            BlockPos feet = player.getBlockPos();
-            BlockPos ahead = feet.offset(mainDir);
-
-            List<BlockPos> descBlocks = new ArrayList<>();
-            if (down) {
-                descBlocks.add(ahead.up());
-                descBlocks.add(ahead);
-                descBlocks.add(ahead.down());
-            } else {
-                descBlocks.add(ahead);
-                descBlocks.add(ahead.up());
-                descBlocks.add(ahead.up(2));
-            }
-
-            // Shuffle order for imperfection
-            descBlocks = pathPlanner.shuffleMineOrder(descBlocks);
-
-            for (BlockPos pos : descBlocks) {
-                if (isMineable(player, world, pos)) {
-                    breakQueue.add(pos);
-                }
-            }
-
-            if (pickFromQueue(player, world)) return;
-
-            // All clear -- walk into gap
-            descPhase = 1;
-            walker.wantForward = 0;
-        }
-
-        if (descPhase == 1) {
-            float pitch = down ? 25f : -20f;
-            aim.face(player, pathPlanner.adjustedYaw(mainDir, sessionTicks), pitch);
-
-            walker.wantForward = 0.6f; // not full speed for stairs
-            walker.wantJump = !down && player.isOnGround();
-
-            int newY = player.getBlockPos().getY();
-            boolean yMoved = down ? (newY < curY) : (newY > curY);
-
-            if (yMoved) {
+        switch (descPhase) {
+            // Phase 0: MINE_STEP -- break blocks for the next stair step
+            case 0 -> {
                 walker.wantForward = 0;
                 walker.wantJump = false;
-                descPhase = 0;
-                cooldown = HumanTiming.fatigued(HumanTiming.descPause(), fatigueSpeed);
+
+                // If breaker is working on something, let it finish
+                if (breaker.hasTarget()) {
+                    if (aim.getState() != AimHelper.AimState.LOCKED
+                            && aim.getState() != AimHelper.AimState.SETTLING) {
+                        aim.aimAt(player, breaker.getTarget());
+                    }
+                    breaker.tick(player, world);
+                    if (breaker.isDone()) {
+                        trackOre(world, breaker.getTarget());
+                        totalBlocksMined++;
+                        breaker.acknowledge();
+                        cooldown = HumanTiming.fatigued(HumanTiming.breakToBreak(), fatigueSpeed);
+                    }
+                    return;
+                }
+
+                // Pick next from queue
+                if (pickFromQueue(player, world)) return;
+
+                // Queue staircase blocks for this step
+                List<BlockPos> stepBlocks = new ArrayList<>();
+
+                if (down) {
+                    // Going down: need to clear ahead + ahead.down (create a step)
+                    // Also clear ahead.up if solid (head room when we walk in)
+                    stepBlocks.add(ahead);          // body level ahead
+                    stepBlocks.add(ahead.down());   // dig the step down
+                    stepBlocks.add(ahead.up());     // head clearance
+                } else {
+                    // Going up: need to clear ahead + ahead.up + ahead.up(2)
+                    // We'll jump onto the block ahead (which is 1 higher)
+                    stepBlocks.add(ahead.up());     // body level when up
+                    stepBlocks.add(ahead.up(2));    // head clearance when up
+                    stepBlocks.add(ahead);          // foot level
+                }
+
+                // Fluid safety: if any block we need to mine is adjacent to fluid, abort
+                for (BlockPos pos : stepBlocks) {
+                    if (WalkHelper.hasDangerousFluid(world, pos)) {
+                        leave(mc);
+                        return;
+                    }
+                }
+
+                // Shuffle for human imperfection and queue mineable blocks
+                stepBlocks = pathPlanner.shuffleMineOrder(stepBlocks);
+                for (BlockPos pos : stepBlocks) {
+                    if (isMineable(player, world, pos)) {
+                        breakQueue.add(pos);
+                    }
+                }
+
+                // If we found blocks to break, start on them
+                if (pickFromQueue(player, world)) return;
+
+                // Nothing to break: the path is already clear, move to walk phase
+                descPhase = 1;
+                descWalkTicks = 0;
+                descLastY = curY;
+            }
+
+            // Phase 1: WALK_STEP -- walk into the cleared gap
+            case 1 -> {
+                descWalkTicks++;
+
+                // Look where we're going
+                float pitch = down ? 30f : -25f;
+                aim.face(player, pathPlanner.adjustedYaw(mainDir, sessionTicks), pitch);
+
+                // Walk forward (not full speed for stairs)
+                walker.wantForward = 0.65f;
+                walker.wantSprint = false;
+
+                if (!down) {
+                    // Going UP: need to jump to get onto the higher block
+                    if (player.isOnGround()) {
+                        walker.wantJump = true;
+                    }
+                } else {
+                    walker.wantJump = false;
+                }
+
+                // Check if Y actually changed (we moved one step)
+                int newY = player.getBlockPos().getY();
+                boolean yChanged = down ? (newY < descLastY) : (newY > descLastY);
+
+                if (yChanged) {
+                    // Success: moved one step
+                    walker.wantForward = 0;
+                    walker.wantJump = false;
+                    descPhase = 2;
+                    descSettleTicks = 0;
+                    descStuckTicks = 0;
+                    return;
+                }
+
+                // Stuck detection: if we've been walking for too long without Y change
+                if (descWalkTicks > 30) {
+                    descStuckTicks += descWalkTicks;
+                    if (descStuckTicks > 80) {
+                        // Completely stuck, give up descent
+                        walker.wantForward = 0;
+                        walker.wantJump = false;
+                        walker.stopWalking();
+                        leave(mc);
+                        return;
+                    }
+                    // Try re-mining: maybe we missed something
+                    walker.wantForward = 0;
+                    walker.wantJump = false;
+                    descPhase = 0;
+                    return;
+                }
+            }
+
+            // Phase 2: SETTLE -- landed on new level, pause before next step
+            case 2 -> {
+                walker.wantForward = 0;
+                walker.wantJump = false;
+                descSettleTicks++;
+
+                int settleTarget = HumanTiming.fatigued(HumanTiming.descPause(), fatigueSpeed);
+                if (descSettleTicks >= Math.max(2, settleTarget)) {
+                    // Ready for next step
+                    descPhase = 0;
+                }
             }
         }
     }
@@ -524,7 +639,8 @@ public final class SampleCollector {
 
         List<BlockPos> found = MaterialIndex.scanExposedTargets(world, player, targets, prefs);
         for (BlockPos pos : found) {
-            if (MaterialIndex.hasAdjacentLava(world, pos)) continue;
+            // Skip ores adjacent to any dangerous fluid (lava or water)
+            if (MaterialIndex.hasAdjacentDangerousFluid(world, pos)) continue;
             double dist = player.getEyePos().distanceTo(Vec3d.ofCenter(pos));
             if (dist > 4.5) continue;
 
@@ -552,7 +668,10 @@ public final class SampleCollector {
         if (bs.isAir()) return false;
         if (bs.getHardness(world, pos) < 0) return false;
         if (!MINEABLE.contains(bs.getBlock())) return false;
-        return player.getEyePos().distanceTo(Vec3d.ofCenter(pos)) <= 4.5;
+        if (player.getEyePos().distanceTo(Vec3d.ofCenter(pos)) > 4.5) return false;
+        // Don't mine blocks that would release dangerous fluids
+        if (MaterialIndex.hasAdjacentDangerousFluid(world, pos)) return false;
+        return true;
     }
 
     // ===================== GOALS =====================

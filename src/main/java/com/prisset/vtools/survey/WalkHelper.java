@@ -1,8 +1,10 @@
 package com.prisset.vtools.survey;
 
 import net.minecraft.block.BlockState;
+import net.minecraft.block.Blocks;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.world.ClientWorld;
+import net.minecraft.fluid.FluidState;
 import net.minecraft.fluid.Fluids;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
@@ -54,6 +56,7 @@ public final class WalkHelper {
     private int totalTicks;
     private Vec3d lastPos;
     private int stuckTicks;
+    private int jumpCooldown;
 
     public WalkHelper() {}
 
@@ -75,7 +78,7 @@ public final class WalkHelper {
                 blocks = i - 1;
                 break;
             }
-            if (hasLava(world, ahead) || hasLava(world, ahead.up())) {
+            if (hasDangerousFluid(world, ahead) || hasDangerousFluid(world, ahead.up())) {
                 blocks = i - 1;
                 break;
             }
@@ -89,6 +92,7 @@ public final class WalkHelper {
         lastPos = player.getPos();
         totalTicks = 0;
         stuckTicks = 0;
+        jumpCooldown = 0;
 
         // Acceleration parameters
         accelTick = 0;
@@ -179,25 +183,32 @@ public final class WalkHelper {
         // Strafe drift (Perlin-based, very subtle)
         wantStrafe = NoiseGenerator.pathDrift(worldTick) * 0.12f;
 
-        // Anti-stuck
+        // Jump cooldown (prevent infinite jumping)
+        if (jumpCooldown > 0) jumpCooldown--;
+
+        // Anti-stuck: only jump after genuinely stuck, single-tick pulse
         if (totalTicks % 8 == 0 && lastPos != null) {
             double moved = player.getPos().squaredDistanceTo(lastPos);
             if (moved < 0.01) {
                 stuckTicks += 8;
-                if (stuckTicks >= 16) {
+                if (stuckTicks >= 32 && jumpCooldown <= 0 && player.isOnGround()) {
                     wantJump = true;
+                    jumpCooldown = 20; // no more jumps for 1 second
                 }
-                if (stuckTicks >= 40) {
+                if (stuckTicks >= 60) {
                     stopWalking();
                     return true;
                 }
             } else {
                 stuckTicks = 0;
-                if (wantJump && player.isOnGround()) {
-                    wantJump = false;
-                }
+                wantJump = false;
             }
             lastPos = player.getPos();
+        }
+
+        // Single-tick jump pulse: reset after one tick of jumping
+        if (wantJump && !player.isOnGround()) {
+            wantJump = false;
         }
 
         // Timeout
@@ -222,29 +233,54 @@ public final class WalkHelper {
         wantSneak = false;
     }
 
-    // --- Floor Safety ---
+    // --- Floor & Fluid Safety ---
 
+    /**
+     * Floor is safe if there's solid ground within 2 blocks below feet,
+     * and no dangerous fluids (lava or water) at that position.
+     */
     public static boolean isFloorSafe(ClientWorld world, BlockPos feetPos) {
+        // Dangerous fluid at feet level = not safe
+        if (hasDangerousFluid(world, feetPos)) return false;
+
         BlockPos floor = feetPos.down();
         BlockState floorState = world.getBlockState(floor);
 
-        if (!floorState.isAir() && !isLavaBlock(world, floor)) return true;
+        if (isDangerousFluid(floorState)) return false;
+        if (!floorState.isAir()) return true;
 
+        // 1 block gap: check 2 blocks down
         BlockPos floor2 = floor.down();
         BlockState floor2State = world.getBlockState(floor2);
-        if (!floor2State.isAir() && !isLavaBlock(world, floor2)) return true;
+        if (isDangerousFluid(floor2State)) return false;
+        if (!floor2State.isAir()) return true;
 
+        // 2+ block drop with nothing solid = not safe
         return false;
     }
 
-    private static boolean hasLava(ClientWorld world, BlockPos pos) {
-        BlockState state = world.getBlockState(pos);
-        return state.getFluidState().getFluid() == Fluids.LAVA
-                || state.getFluidState().getFluid() == Fluids.FLOWING_LAVA;
+    /**
+     * Any dangerous fluid: lava (burns) or water (drowns, pushes).
+     */
+    public static boolean hasDangerousFluid(ClientWorld world, BlockPos pos) {
+        return isDangerousFluid(world.getBlockState(pos));
     }
 
-    private static boolean isLavaBlock(ClientWorld world, BlockPos pos) {
-        return hasLava(world, pos);
+    private static boolean isDangerousFluid(BlockState state) {
+        FluidState fluid = state.getFluidState();
+        if (fluid.isEmpty()) return false;
+        return fluid.getFluid() == Fluids.LAVA
+                || fluid.getFluid() == Fluids.FLOWING_LAVA
+                || fluid.getFluid() == Fluids.WATER
+                || fluid.getFluid() == Fluids.FLOWING_WATER;
+    }
+
+    /**
+     * Lava specifically (for situations where water is ok but lava isn't).
+     */
+    public static boolean hasLava(ClientWorld world, BlockPos pos) {
+        FluidState fluid = world.getBlockState(pos).getFluidState();
+        return fluid.getFluid() == Fluids.LAVA || fluid.getFluid() == Fluids.FLOWING_LAVA;
     }
 
     private static double horizontalDistance(Vec3d a, Vec3d b) {

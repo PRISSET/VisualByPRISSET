@@ -223,28 +223,39 @@ public final class MaterialIndex {
         return false;
     }
 
+    /**
+     * Any dangerous fluid (lava or water) adjacent to pos.
+     * Water is dangerous underground: drowning, current pushing into lava.
+     */
+    public static boolean hasAdjacentDangerousFluid(ClientWorld world, BlockPos pos) {
+        for (Direction dir : Direction.values()) {
+            if (WalkHelper.hasDangerousFluid(world, pos.offset(dir))) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Safe to stand: no lava or water at feet, body, or below.
+     */
     public static boolean isSafeToStand(ClientWorld world, BlockPos feetPos) {
         for (int dy = -1; dy <= 1; dy++) {
-            BlockPos check = feetPos.up(dy);
-            BlockState state = world.getBlockState(check);
-            if (state.getFluidState().getFluid() == Fluids.LAVA
-                    || state.getFluidState().getFluid() == Fluids.FLOWING_LAVA) {
-                return false;
-            }
+            if (WalkHelper.hasDangerousFluid(world, feetPos.up(dy))) return false;
         }
         return true;
     }
 
-    public static List<BlockPos> findLavaExposures(ClientWorld world, BlockPos center, int scanDist) {
+    /**
+     * Find positions adjacent to dangerous fluids that are exposed to air.
+     * These are blocks we should NOT mine (would release fluid).
+     */
+    public static List<BlockPos> findFluidExposures(ClientWorld world, BlockPos center, int scanDist) {
         List<BlockPos> exposures = new ArrayList<>();
         BlockPos.Mutable mut = new BlockPos.Mutable();
         for (int dx = -scanDist; dx <= scanDist; dx++) {
             for (int dy = -1; dy <= 2; dy++) {
                 for (int dz = -scanDist; dz <= scanDist; dz++) {
                     mut.set(center.getX() + dx, center.getY() + dy, center.getZ() + dz);
-                    BlockState state = world.getBlockState(mut);
-                    if (state.getFluidState().getFluid() == Fluids.LAVA
-                            || state.getFluidState().getFluid() == Fluids.FLOWING_LAVA) {
+                    if (WalkHelper.hasDangerousFluid(world, mut)) {
                         for (Direction dir : Direction.values()) {
                             BlockPos adj = mut.offset(dir).toImmutable();
                             if (world.getBlockState(adj).isAir()) {
