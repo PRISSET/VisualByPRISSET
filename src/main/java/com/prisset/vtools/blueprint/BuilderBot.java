@@ -1,5 +1,6 @@
 package com.prisset.vtools.blueprint;
 
+import net.minecraft.block.BlockState;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.world.ClientWorld;
@@ -15,19 +16,21 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * Smart builder bot with spatial awareness.
+ * Adaptive builder bot that walks to each block and places it.
  *
- * Key intelligence:
- * - Never places blocks where the player is standing (feet + head positions)
- * - Never places blocks it can't physically reach (checks line of sight to face)
- * - Walks BESIDE blocks to place, not ON TOP of them
- * - Layer-by-layer strict order, defers unsupported blocks
- * - Synthetic BlockHitResult placement (reliable in singleplayer)
+ * Core behavior:
+ * - Strict layer-by-layer (Y=0 complete before Y=1)
+ * - Within each layer, always picks the NEAREST reachable block to the player
+ * - Walks to blocks it can't reach, stops at comfortable placement distance
+ * - Sneaks when placing against interactive blocks (chests, furnaces, etc.)
+ * - Defers blocks that can't be placed yet (no support, player in the way)
+ * - Post-placement adjustment for repeater delay, comparator mode
  */
 public final class BuilderBot {
 
@@ -35,20 +38,21 @@ public final class BuilderBot {
     private static final BuilderBot INSTANCE = new BuilderBot();
 
     private static final double PLACE_REACH = 4.5;
-    private static final double WALK_STOP_DIST = 3.5;
-    private static final int WALK_TIMEOUT = 160;
+    private static final double COMFORTABLE_DIST = 3.0; // stop walking at this distance
+    private static final int WALK_TIMEOUT = 200;
+    private static final int MAX_DEFERRED_ROUNDS = 8;
 
     public enum State {
-        IDLE, PLANNING, EQUIP, WALKING, AIM, PLACE, ADJUST, COOLDOWN, DONE, PAUSED
+        IDLE, PLANNING, PICK, EQUIP, WALKING, AIM, PLACE, ADJUST, COOLDOWN, DONE, PAUSED
     }
 
     private State state = State.IDLE;
 
+    // Layer data: each layer is a mutable list, blocks are removed when placed
     private List<List<BuildQueue.PlaceEntry>> layers;
     private int layerIdx;
-    private int blockIdx;
     private List<BuildQueue.PlaceEntry> deferred;
-    private int deferredAttempts;
+    private int deferredRounds;
 
     private int placedCount;
     private int totalCount;
@@ -56,10 +60,11 @@ public final class BuilderBot {
     private int blocksSinceBreak;
 
     private BuildQueue.PlaceEntry currentEntry;
+    private Direction currentFace; // cached face for current placement
     private int aimTicks;
     private int walkTicks;
-    private int adjustClicks;   // remaining right-clicks for post-placement (repeater delay)
-    private int adjustCooldown; // ticks between adjust clicks
+    private int adjustClicks;
+    private int adjustCooldown;
 
     private BuilderBot() {}
     public static BuilderBot instance() { return INSTANCE; }
@@ -77,8 +82,7 @@ public final class BuilderBot {
         placedCount = 0;
         blocksSinceBreak = 0;
         layerIdx = 0;
-        blockIdx = 0;
-        deferredAttempts = 0;
+        deferredRounds = 0;
         deferred = new ArrayList<>();
         LOG.info("Builder started");
     }
@@ -88,6 +92,7 @@ public final class BuilderBot {
         layers = null;
         deferred = null;
         currentEntry = null;
+        currentFace = null;
         releaseKeys();
         LOG.info("Builder stopped ({} placed)", placedCount);
     }
@@ -100,7 +105,7 @@ public final class BuilderBot {
     }
 
     public void resume() {
-        if (state == State.PAUSED) state = State.EQUIP;
+        if (state == State.PAUSED) state = State.PICK;
     }
 
     public boolean isRunning() {
@@ -118,6 +123,7 @@ public final class BuilderBot {
 
         switch (state) {
             case PLANNING -> tickPlanning(mc);
+            case PICK     -> tickPick(mc);
             case EQUIP    -> tickEquip(mc);
             case WALKING  -> tickWalking(mc);
             case AIM      -> tickAim(mc);
@@ -127,15 +133,16 @@ public final class BuilderBot {
         }
     }
 
-    // -- PLANNING --
+    // ==========================================================
+    // PLANNING: generate all layers
+    // ==========================================================
 
     private void tickPlanning(MinecraftClient mc) {
         layers = BuildQueue.generateLayers(mc.world, mc.player);
         layerIdx = 0;
-        blockIdx = 0;
         if (deferred == null) deferred = new ArrayList<>();
         deferred.clear();
-        deferredAttempts = 0;
+        deferredRounds = 0;
 
         totalCount = 0;
         for (var layer : layers) totalCount += layer.size();
@@ -147,48 +154,100 @@ public final class BuilderBot {
         }
 
         LOG.info("Queue: {} blocks, {} layers", totalCount, layers.size());
-        state = State.EQUIP;
+        state = State.PICK;
     }
 
-    // -- EQUIP --
+    // ==========================================================
+    // PICK: find the nearest placeable block in current layer
+    // ==========================================================
+
+    private void tickPick(MinecraftClient mc) {
+        ClientPlayerEntity player = mc.player;
+        ClientWorld world = mc.world;
+
+        // Advance through layers
+        while (layerIdx < layers.size()) {
+            List<BuildQueue.PlaceEntry> layer = layers.get(layerIdx);
+
+            // Remove already-placed blocks from layer
+            layer.removeIf(e -> {
+                String actual = SchematicData.encodeState(world.getBlockState(e.worldPos));
+                return e.blockState.equals(actual);
+            });
+
+            if (layer.isEmpty()) {
+                layerIdx++;
+                continue;
+            }
+
+            // Find nearest block that we can attempt to place
+            BuildQueue.PlaceEntry best = null;
+            double bestDist = Double.MAX_VALUE;
+            Vec3d playerPos = player.getPos();
+
+            for (BuildQueue.PlaceEntry entry : layer) {
+                // Skip blocks player is occupying
+                if (isPlayerOccupying(player, entry.worldPos)) continue;
+
+                // Skip blocks with no support
+                if (!hasSupport(world, entry.worldPos)) continue;
+
+                double dist = playerPos.squaredDistanceTo(Vec3d.ofCenter(entry.worldPos));
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    best = entry;
+                }
+            }
+
+            if (best != null) {
+                currentEntry = best;
+                layer.remove(best);
+                state = State.EQUIP;
+                return;
+            }
+
+            // All remaining blocks in this layer are deferred (no support / player blocking)
+            // Move them to deferred list and try next layer or retry
+            deferred.addAll(layer);
+            layer.clear();
+            layerIdx++;
+        }
+
+        // All layers exhausted — check deferred
+        if (!deferred.isEmpty() && deferredRounds < MAX_DEFERRED_ROUNDS) {
+            deferredRounds++;
+            layers.add(new ArrayList<>(deferred));
+            deferred.clear();
+            // Don't increment layerIdx — we just added a new layer at the end
+            return;
+        }
+
+        // Truly done or stuck
+        state = State.PLANNING;
+    }
+
+    // ==========================================================
+    // EQUIP: get the right block in hand, then check distance
+    // ==========================================================
 
     private void tickEquip(MinecraftClient mc) {
         ClientPlayerEntity player = mc.player;
-        currentEntry = pickNext(mc);
-
-        if (currentEntry == null) {
-            if (!deferred.isEmpty() && deferredAttempts < 5) {
-                layers.add(new ArrayList<>(deferred));
-                deferred.clear();
-                deferredAttempts++;
-                return;
-            }
-            state = State.PLANNING;
-            return;
-        }
-
         BlockPos target = currentEntry.worldPos;
 
-        // SPATIAL AWARENESS: skip blocks player is occupying
-        if (isPlayerOccupying(player, target)) {
-            deferred.add(currentEntry);
-            blockIdx++;
+        // Re-check: already placed?
+        String actual = SchematicData.encodeState(mc.world.getBlockState(target));
+        if (currentEntry.blockState.equals(actual)) {
+            state = State.PICK;
             return;
         }
 
-        // Check support (at least one non-air neighbor)
-        if (!hasSupport(mc.world, target)) {
-            deferred.add(currentEntry);
-            blockIdx++;
-            return;
-        }
-
-        // Equip block first (needed before any placement attempt)
+        // Equip the right block
         String blockId = currentEntry.getBlockId();
         if (!InventoryHelper.isHolding(player, blockId)) {
             boolean found = InventoryHelper.equipBlock(player, blockId);
             if (!found) {
-                blockIdx++;
+                // Material not in inventory, skip this block
+                state = State.PICK;
                 return;
             }
             cooldownTicks = 1;
@@ -196,19 +255,20 @@ public final class BuilderBot {
             return;
         }
 
-        // Distance check: if too far from target, walk first
-        double distToTarget = player.getEyePos().distanceTo(Vec3d.ofCenter(target));
-        if (distToTarget > PLACE_REACH) {
+        // Distance check
+        double dist = player.getEyePos().distanceTo(Vec3d.ofCenter(target));
+        if (dist > PLACE_REACH) {
             walkTicks = 0;
             state = State.WALKING;
             return;
         }
 
-        // Close enough — find a valid face to place against
-        Direction face = findBestPlaceFace(mc.world, player, target);
-        if (face == null) {
+        // Close enough — find a face to place against
+        currentFace = findBestPlaceFace(mc.world, player, target);
+        if (currentFace == null) {
+            // Can't find a face even though we're close — defer
             deferred.add(currentEntry);
-            blockIdx++;
+            state = State.PICK;
             return;
         }
 
@@ -216,25 +276,9 @@ public final class BuilderBot {
         state = State.AIM;
     }
 
-    private BuildQueue.PlaceEntry pickNext(MinecraftClient mc) {
-        while (layerIdx < layers.size()) {
-            var layer = layers.get(layerIdx);
-            while (blockIdx < layer.size()) {
-                var entry = layer.get(blockIdx);
-                String actual = SchematicData.encodeState(mc.world.getBlockState(entry.worldPos));
-                if (entry.blockState.equals(actual)) {
-                    blockIdx++;
-                    continue;
-                }
-                return entry;
-            }
-            layerIdx++;
-            blockIdx = 0;
-        }
-        return null;
-    }
-
-    // -- WALKING --
+    // ==========================================================
+    // WALKING: move toward the target block
+    // ==========================================================
 
     private void tickWalking(MinecraftClient mc) {
         ClientPlayerEntity player = mc.player;
@@ -243,34 +287,45 @@ public final class BuilderBot {
 
         if (walkTicks > WALK_TIMEOUT) {
             releaseKeys();
-            blockIdx++;
+            deferred.add(currentEntry);
+            state = State.PICK;
+            return;
+        }
+
+        // Check if we're now close enough to place
+        double distToTarget = player.getEyePos().distanceTo(Vec3d.ofCenter(target));
+        if (distToTarget <= COMFORTABLE_DIST) {
+            releaseKeys();
+            // Re-enter EQUIP to find face now that we're close
             state = State.EQUIP;
             return;
         }
 
-        // Walk toward a spot BESIDE the target, not on top of it
+        // Walk toward a position beside the target
         Vec3d walkGoal = findStandPosition(player, target);
         Vec3d pPos = player.getPos();
         double dx = walkGoal.x - pPos.x;
         double dz = walkGoal.z - pPos.z;
         double distXZ = Math.sqrt(dx * dx + dz * dz);
 
-        if (distXZ <= 1.0) {
+        if (distXZ <= 0.8) {
             releaseKeys();
-            aimTicks = 0;
-            state = State.AIM;
+            state = State.EQUIP;
             return;
         }
 
+        // Face the walk direction
         float yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
-        player.setYaw(lerpAngle(player.getYaw(), yaw, 0.3f));
+        player.setYaw(lerpAngle(player.getYaw(), yaw, 0.35f));
 
         mc.options.forwardKey.setPressed(true);
-        mc.options.sprintKey.setPressed(distXZ > 5.0);
+        mc.options.sprintKey.setPressed(distXZ > 6.0);
 
-        if (player.isOnGround()) {
+        // Jump over obstacles
+        if (player.isOnGround() && walkTicks > 4) {
             Vec3d vel = player.getVelocity();
-            if (vel.x * vel.x + vel.z * vel.z < 0.001 && walkTicks > 5) {
+            double speed = vel.x * vel.x + vel.z * vel.z;
+            if (speed < 0.001) {
                 mc.options.jumpKey.setPressed(true);
             } else {
                 mc.options.jumpKey.setPressed(false);
@@ -278,34 +333,31 @@ public final class BuilderBot {
         }
     }
 
-    // -- AIM --
+    // ==========================================================
+    // AIM: look at the placement face
+    // ==========================================================
 
     private void tickAim(MinecraftClient mc) {
         ClientPlayerEntity player = mc.player;
         BlockPos target = currentEntry.worldPos;
 
+        // Re-find face (player may have moved slightly)
         Direction face = findBestPlaceFace(mc.world, player, target);
         if (face == null) {
             deferred.add(currentEntry);
-            blockIdx++;
-            state = State.EQUIP;
+            state = State.PICK;
             return;
         }
+        currentFace = face;
 
-        // For directional blocks (repeater, comparator), player must face opposite
-        // to the desired "facing" property so Minecraft orients the block correctly.
-        // Repeater/comparator facing = direction the output points = opposite of player look.
+        // For directional blocks, orient player correctly
         float targetYaw;
-        float targetPitch;
-
         Map<String, String> props = parseProperties(currentEntry.blockState);
         String facingProp = props.get("facing");
         if (facingProp != null && isDirectionalPlacement(currentEntry.blockState)) {
             Direction desired = directionFromName(facingProp);
             if (desired != null) {
-                // Player must look OPPOSITE to the desired facing
-                Direction lookDir = desired.getOpposite();
-                targetYaw = directionToYaw(lookDir);
+                targetYaw = directionToYaw(desired.getOpposite());
             } else {
                 targetYaw = aimYawToward(player, getFaceHitPoint(target, face));
             }
@@ -319,7 +371,7 @@ public final class BuilderBot {
         double dxH = hitPoint.x - eyes.x;
         double dzH = hitPoint.z - eyes.z;
         double distXZ = Math.sqrt(dxH * dxH + dzH * dzH);
-        targetPitch = (float) Math.toDegrees(-Math.atan2(dy, distXZ));
+        float targetPitch = (float) Math.toDegrees(-Math.atan2(dy, distXZ));
 
         player.setYaw(lerpAngle(player.getYaw(), targetYaw, 0.5f));
         player.setPitch(MathHelper.clamp(
@@ -333,25 +385,29 @@ public final class BuilderBot {
         }
     }
 
-    // -- PLACE --
+    // ==========================================================
+    // PLACE: actually place the block
+    // ==========================================================
 
     private void tickPlace(MinecraftClient mc) {
         ClientPlayerEntity player = mc.player;
         ClientWorld world = mc.world;
         BlockPos target = currentEntry.worldPos;
 
-        // Final safety: don't place into player
+        // Final safety
         if (isPlayerOccupying(player, target)) {
             deferred.add(currentEntry);
-            blockIdx++;
-            state = State.EQUIP;
+            state = State.PICK;
             return;
         }
 
-        Direction face = findBestPlaceFace(world, player, target);
+        Direction face = currentFace;
         if (face == null) {
-            blockIdx++;
-            state = State.EQUIP;
+            face = findBestPlaceFace(world, player, target);
+        }
+        if (face == null) {
+            deferred.add(currentEntry);
+            state = State.PICK;
             return;
         }
 
@@ -359,10 +415,18 @@ public final class BuilderBot {
         Direction clickFace = face.getOpposite();
         Vec3d hitPos = getFaceHitPoint(target, face);
 
+        // Final reach check
+        double reachDist = player.getEyePos().distanceTo(hitPos);
+        if (reachDist > PLACE_REACH) {
+            // Got too far somehow, walk again
+            walkTicks = 0;
+            state = State.WALKING;
+            return;
+        }
+
         BlockHitResult hit = new BlockHitResult(hitPos, clickFace, neighbor, false);
 
-        // Sneak to prevent opening interactive blocks (chests, furnaces, brewing stands, etc.)
-        // ClientPlayerEntity.isSneaking() reads input.sneaking, not the Entity flag
+        // Always sneak during placement to prevent opening containers
         boolean wasSneaking = player.input.sneaking;
         player.input.sneaking = true;
         mc.interactionManager.interactBlock(player, Hand.MAIN_HAND, hit);
@@ -374,10 +438,9 @@ public final class BuilderBot {
             placedCount++;
         }
 
-        blockIdx++;
         blocksSinceBreak++;
 
-        // Check if post-placement adjustment is needed (e.g. repeater delay)
+        // Post-placement adjustment (repeater delay, comparator mode)
         int clicks = getRequiredAdjustClicks(currentEntry.blockState);
         if (placed && clicks > 0) {
             adjustClicks = clicks;
@@ -386,16 +449,12 @@ public final class BuilderBot {
             return;
         }
 
-        if (blocksSinceBreak >= 15 + ThreadLocalRandom.current().nextInt(15)) {
-            cooldownTicks = 15 + ThreadLocalRandom.current().nextInt(20);
-            blocksSinceBreak = 0;
-        } else {
-            cooldownTicks = 2 + ThreadLocalRandom.current().nextInt(4);
-        }
-        state = State.COOLDOWN;
+        enterCooldown();
     }
 
-    // -- ADJUST (post-placement: repeater delay clicks, etc.) --
+    // ==========================================================
+    // ADJUST: post-placement right-clicks (repeater delay, etc.)
+    // ==========================================================
 
     private void tickAdjust(MinecraftClient mc) {
         if (adjustCooldown > 0) {
@@ -404,21 +463,13 @@ public final class BuilderBot {
         }
 
         if (adjustClicks <= 0) {
-            // Done adjusting, go to cooldown
-            if (blocksSinceBreak >= 15 + ThreadLocalRandom.current().nextInt(15)) {
-                cooldownTicks = 15 + ThreadLocalRandom.current().nextInt(20);
-                blocksSinceBreak = 0;
-            } else {
-                cooldownTicks = 2 + ThreadLocalRandom.current().nextInt(4);
-            }
-            state = State.COOLDOWN;
+            enterCooldown();
             return;
         }
 
         ClientPlayerEntity player = mc.player;
         BlockPos target = currentEntry.worldPos;
 
-        // Right-click the placed block to cycle its state (e.g. repeater delay)
         Vec3d hitPos = Vec3d.ofCenter(target).add(0, 0.25, 0);
         BlockHitResult hit = new BlockHitResult(hitPos, Direction.UP, target, false);
 
@@ -428,24 +479,32 @@ public final class BuilderBot {
         player.input.sneaking = wasSneaking;
 
         adjustClicks--;
-        adjustCooldown = 2; // small delay between clicks for reliability
+        adjustCooldown = 2;
     }
 
-    // -- COOLDOWN --
+    // ==========================================================
+    // COOLDOWN: anti-detection pause between placements
+    // ==========================================================
 
     private void tickCooldown() {
         cooldownTicks--;
-        if (cooldownTicks <= 0) state = State.EQUIP;
+        if (cooldownTicks <= 0) state = State.PICK;
+    }
+
+    private void enterCooldown() {
+        if (blocksSinceBreak >= 15 + ThreadLocalRandom.current().nextInt(15)) {
+            cooldownTicks = 15 + ThreadLocalRandom.current().nextInt(20);
+            blocksSinceBreak = 0;
+        } else {
+            cooldownTicks = 2 + ThreadLocalRandom.current().nextInt(4);
+        }
+        state = State.COOLDOWN;
     }
 
     // ==========================================================
     // BLOCK PROPERTY HELPERS
     // ==========================================================
 
-    /**
-     * Parse "[prop=val,prop2=val2]" from a blockState string like
-     * "minecraft:repeater[delay=3,facing=north,locked=false,powered=false]"
-     */
     private static Map<String, String> parseProperties(String blockState) {
         Map<String, String> props = new HashMap<>();
         int open = blockState.indexOf('[');
@@ -460,20 +519,15 @@ public final class BuilderBot {
         return props;
     }
 
-    /**
-     * How many right-clicks are needed after placement to reach the desired state.
-     * Repeater: default delay=1, each click +1 (up to 4). So delay=3 -> 2 clicks.
-     * Comparator: default mode=compare, one click -> subtract. So subtract -> 1 click.
-     */
     private static int getRequiredAdjustClicks(String blockState) {
-        String blockId = blockState.contains("[") ? blockState.substring(0, blockState.indexOf('[')) : blockState;
+        String blockId = extractBlockId(blockState);
         Map<String, String> props = parseProperties(blockState);
 
         if (blockId.equals("minecraft:repeater")) {
             String delayStr = props.get("delay");
             if (delayStr != null) {
                 int delay = Integer.parseInt(delayStr);
-                return delay - 1; // placed with delay=1, each click adds 1
+                return delay - 1;
             }
         }
 
@@ -485,16 +539,17 @@ public final class BuilderBot {
         return 0;
     }
 
-    /**
-     * Whether this block's orientation depends on player facing direction at placement.
-     * Repeaters, comparators, stairs, pistons, etc.
-     */
     private static boolean isDirectionalPlacement(String blockState) {
-        String blockId = blockState.contains("[") ? blockState.substring(0, blockState.indexOf('[')) : blockState;
+        String blockId = extractBlockId(blockState);
         return blockId.equals("minecraft:repeater")
             || blockId.equals("minecraft:comparator")
             || blockId.contains("piston")
             || blockId.contains("observer");
+    }
+
+    private static String extractBlockId(String blockState) {
+        int bracket = blockState.indexOf('[');
+        return bracket >= 0 ? blockState.substring(0, bracket) : blockState;
     }
 
     private static Direction directionFromName(String name) {
@@ -530,10 +585,6 @@ public final class BuilderBot {
     // SPATIAL AWARENESS HELPERS
     // ==========================================================
 
-    /**
-     * Check if the player's bounding box overlaps with the given block position.
-     * Prevents placing blocks into the player (feet, body, head).
-     */
     private boolean isPlayerOccupying(ClientPlayerEntity player, BlockPos pos) {
         Box playerBox = player.getBoundingBox();
         Box blockBox = new Box(pos);
@@ -541,38 +592,23 @@ public final class BuilderBot {
     }
 
     /**
-     * Find the best face to place against, considering:
-     * 1. The neighbor must be solid (non-air)
-     * 2. The face must be reachable from player's eye position
-     * 3. The neighbor must NOT be a position the player occupies
-     *
-     * Priority: DOWN first (natural), then sides, then UP
+     * Find the best face to place against.
+     * Only considers faces within PLACE_REACH from player's eyes.
      */
     private Direction findBestPlaceFace(ClientWorld world, ClientPlayerEntity player, BlockPos target) {
         Vec3d eyes = player.getEyePos();
-
         Direction best = null;
         double bestDist = Double.MAX_VALUE;
 
-        // Preferred order: DOWN, sides, UP
-        Direction[] order = {
-            Direction.DOWN,
-            Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST,
-            Direction.UP
-        };
-
-        for (Direction dir : order) {
+        for (Direction dir : Direction.values()) {
             BlockPos neighbor = target.offset(dir);
 
-            // Neighbor must be solid
             if (world.getBlockState(neighbor).isAir()) continue;
 
-            // Check reach to the face
             Vec3d facePoint = getFaceHitPoint(target, dir);
             double dist = eyes.distanceTo(facePoint);
             if (dist > PLACE_REACH) continue;
 
-            // Pick closest reachable face
             if (dist < bestDist) {
                 bestDist = dist;
                 best = dir;
@@ -582,10 +618,6 @@ public final class BuilderBot {
         return best;
     }
 
-    /**
-     * Calculate the exact hit point on the face between target and its neighbor.
-     * This is the center of the face on the neighbor block that faces toward target.
-     */
     private Vec3d getFaceHitPoint(BlockPos target, Direction faceDir) {
         BlockPos neighbor = target.offset(faceDir);
         Direction clickFace = faceDir.getOpposite();
@@ -594,35 +626,29 @@ public final class BuilderBot {
     }
 
     /**
-     * Find a good position for the player to stand while placing a block.
-     * Prefers positions that are:
-     * - On the same Y level or one below the target
-     * - Adjacent to the target horizontally
-     * - Not inside the target block
+     * Find a position beside the target block for the player to stand.
+     * Picks the side closest to the player's current position, 2 blocks out.
      */
     private Vec3d findStandPosition(ClientPlayerEntity player, BlockPos target) {
         Vec3d playerPos = player.getPos();
         Vec3d targetCenter = Vec3d.ofCenter(target);
 
-        // Direction from target to player (we want to stand on the player's side)
         double dx = playerPos.x - targetCenter.x;
         double dz = playerPos.z - targetCenter.z;
         double len = Math.sqrt(dx * dx + dz * dz);
 
         if (len < 0.1) {
-            // Player is basically at target, pick arbitrary direction
             dx = 1;
             dz = 0;
             len = 1;
         }
 
-        // Normalize and step 2 blocks away from target center
         double nx = dx / len;
         double nz = dz / len;
 
         return new Vec3d(
             targetCenter.x + nx * 2.5,
-            target.getY(), // same Y level
+            target.getY(),
             targetCenter.z + nz * 2.5
         );
     }
