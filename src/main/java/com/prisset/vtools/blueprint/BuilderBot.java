@@ -338,8 +338,12 @@ public final class BuilderBot {
 
         BlockHitResult hit = new BlockHitResult(hitPos, clickFace, neighbor, false);
 
+        // Sneak to prevent opening interactive blocks (chests, furnaces, brewing stands, etc.)
+        boolean wasSneaking = player.isSneaking();
+        player.setSneaking(true);
         mc.interactionManager.interactBlock(player, Hand.MAIN_HAND, hit);
         player.swingHand(Hand.MAIN_HAND);
+        player.setSneaking(wasSneaking);
 
         boolean placed = !world.getBlockState(target).isAir();
         if (placed) {
