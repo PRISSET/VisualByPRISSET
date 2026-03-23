@@ -42,6 +42,7 @@ public class DisplayPrefs {
     private float menuRgbSpeed;
 
     private boolean noBobbing;
+    private boolean wTap;
 
     private DisplayPrefs() {
         this.active = false;
@@ -70,6 +71,7 @@ public class DisplayPrefs {
         this.menuRgbMode = false;
         this.menuRgbSpeed = 1.0f;
         this.noBobbing = false;
+        this.wTap = false;
     }
 
     public static DisplayPrefs defaults() {
@@ -106,6 +108,7 @@ public class DisplayPrefs {
         obj.addProperty("mrbm", menuRgbMode);
         obj.addProperty("mrs", menuRgbSpeed);
         obj.addProperty("nb", noBobbing);
+        obj.addProperty("wt", wTap);
         return obj;
     }
 
@@ -137,6 +140,7 @@ public class DisplayPrefs {
         if (obj.has("mrbm")) prefs.menuRgbMode = obj.get("mrbm").getAsBoolean();
         if (obj.has("mrs")) prefs.menuRgbSpeed = obj.get("mrs").getAsFloat();
         if (obj.has("nb")) prefs.noBobbing = obj.get("nb").getAsBoolean();
+        if (obj.has("wt")) prefs.wTap = obj.get("wt").getAsBoolean();
         return prefs;
     }
 
@@ -201,6 +205,7 @@ public class DisplayPrefs {
     public boolean isMenuRgbMode() { return menuRgbMode; }
     public float getMenuRgbSpeed() { return menuRgbSpeed; }
     public boolean isNoBobbing() { return noBobbing; }
+    public boolean isWTap() { return wTap; }
     // --- Setters ---
 
     public void setActive(boolean val) { this.active = val; }
@@ -229,6 +234,7 @@ public class DisplayPrefs {
     public void setMenuRgbMode(boolean val) { this.menuRgbMode = val; }
     public void setMenuRgbSpeed(float val) { this.menuRgbSpeed = clamp(val, 0.1f, 5.0f); }
     public void setNoBobbing(boolean val) { this.noBobbing = val; }
+    public void setWTap(boolean val) { this.wTap = val; }
     // --- Utility ---
 
     private static float clamp(float val, float min, float max) {
