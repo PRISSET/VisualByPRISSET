@@ -362,11 +362,12 @@ public final class BuilderBot {
         BlockHitResult hit = new BlockHitResult(hitPos, clickFace, neighbor, false);
 
         // Sneak to prevent opening interactive blocks (chests, furnaces, brewing stands, etc.)
-        boolean wasSneaking = player.isSneaking();
-        player.setSneaking(true);
+        // ClientPlayerEntity.isSneaking() reads input.sneaking, not the Entity flag
+        boolean wasSneaking = player.input.sneaking;
+        player.input.sneaking = true;
         mc.interactionManager.interactBlock(player, Hand.MAIN_HAND, hit);
         player.swingHand(Hand.MAIN_HAND);
-        player.setSneaking(wasSneaking);
+        player.input.sneaking = wasSneaking;
 
         boolean placed = !world.getBlockState(target).isAir();
         if (placed) {
@@ -421,10 +422,10 @@ public final class BuilderBot {
         Vec3d hitPos = Vec3d.ofCenter(target).add(0, 0.25, 0);
         BlockHitResult hit = new BlockHitResult(hitPos, Direction.UP, target, false);
 
-        boolean wasSneaking = player.isSneaking();
-        player.setSneaking(true);
+        boolean wasSneaking = player.input.sneaking;
+        player.input.sneaking = true;
         mc.interactionManager.interactBlock(player, Hand.MAIN_HAND, hit);
-        player.setSneaking(wasSneaking);
+        player.input.sneaking = wasSneaking;
 
         adjustClicks--;
         adjustCooldown = 2; // small delay between clicks for reliability
