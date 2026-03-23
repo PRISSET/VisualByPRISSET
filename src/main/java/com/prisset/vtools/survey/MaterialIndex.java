@@ -12,10 +12,12 @@ import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
 
 import java.util.*;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * Identifies target materials and hazards in the world.
  * Only reports EXPOSED ores (at least one air-adjacent face) within player reach.
+ * Includes human imperfection: miss chance and visibility filtering.
  */
 public final class MaterialIndex {
 
@@ -133,6 +135,25 @@ public final class MaterialIndex {
             }
         }
 
+        // Human imperfection: miss some ores (can't see everything)
+        ThreadLocalRandom rng = ThreadLocalRandom.current();
+        found.removeIf(pos -> {
+            int exposedFaces = countExposedFaces(world, pos);
+            float missChance;
+            if (exposedFaces <= 1) missChance = 0.15f;      // hard to spot
+            else if (exposedFaces == 2) missChance = 0.07f;  // moderate
+            else missChance = 0.02f;                          // obvious
+            return rng.nextFloat() < missChance;
+        });
+
+        // Visibility filter: can't see ores behind the player
+        Vec3d look = Vec3d.fromPolar(player.getPitch(), player.getYaw());
+        found.removeIf(pos -> {
+            Vec3d toOre = Vec3d.ofCenter(pos).subtract(eyes).normalize();
+            double dot = look.dotProduct(toOre);
+            return dot < -0.3; // behind player (wide cone)
+        });
+
         // Sort: priority first (count-weighted + base value), then distance
         found.sort((a, b) -> {
             int pa = effectivePriority(world.getBlockState(a).getBlock(), prefs);
@@ -142,6 +163,18 @@ public final class MaterialIndex {
         });
 
         return found;
+    }
+
+    /**
+     * Count how many faces of the block are exposed to air.
+     * More faces = more visible = less likely to miss.
+     */
+    public static int countExposedFaces(ClientWorld world, BlockPos pos) {
+        int count = 0;
+        for (Direction dir : Direction.values()) {
+            if (world.getBlockState(pos.offset(dir)).isAir()) count++;
+        }
+        return count;
     }
 
     /**

@@ -5,17 +5,12 @@ import net.minecraft.util.math.Direction;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * Plans a branch-mine grid pattern.
- * Neutral naming: "GridLayout" reads as a UI/structure layout helper.
- *
- * Pattern: main corridor in the player's facing direction,
- * with side branches every 3 blocks. Each branch extends 10 blocks
- * to either side. The tunnel is 1 wide, 2 tall (feet + head).
- *
- * Mining order: dig main corridor forward, periodically check
- * side blocks for ore veins within scan radius.
+ * Plans a branch-mine grid pattern with human imperfection.
+ * Tunnels are slightly irregular -- sometimes 3 blocks high,
+ * sometimes floor is cleared, mining order varies.
  */
 public final class GridLayout {
 
@@ -25,14 +20,27 @@ public final class GridLayout {
     private GridLayout() {}
 
     /**
-     * Generate the sequence of BlockPos to break for a main corridor segment.
-     * Corridor is 1 wide, 2 tall. Returns feet-level and head-level blocks.
+     * Generate corridor blocks with human imperfection.
+     * Base: 1 wide, 2 tall. Sometimes mines extra blocks.
      */
     public static List<BlockPos> corridorSegment(BlockPos feetPos, Direction facing) {
         List<BlockPos> blocks = new ArrayList<>();
         BlockPos ahead = feetPos.offset(facing);
         blocks.add(ahead);           // feet level
         blocks.add(ahead.up());      // head level
+
+        ThreadLocalRandom rng = ThreadLocalRandom.current();
+
+        // 12% chance: mine ceiling (3 blocks high)
+        if (rng.nextFloat() < 0.12f) {
+            blocks.add(ahead.up(2));
+        }
+
+        // 7% chance: clear floor
+        if (rng.nextFloat() < 0.07f) {
+            blocks.add(ahead.down());
+        }
+
         return blocks;
     }
 
@@ -64,9 +72,14 @@ public final class GridLayout {
 
     /**
      * Whether a corridor step index should trigger a branch.
+     * Interval varies slightly (2-4) for imperfection.
      */
     public static boolean isBranchStep(int stepIndex) {
-        return stepIndex > 0 && stepIndex % BRANCH_INTERVAL == 0;
+        if (stepIndex <= 0) return false;
+        // Variable interval: not always exactly 3
+        int interval = BRANCH_INTERVAL + (int)(NoiseGenerator.noise1D(stepIndex * 0.7f) * 1.2f);
+        interval = Math.max(2, Math.min(5, interval));
+        return stepIndex % interval == 0;
     }
 
     public static int getBranchLength() {

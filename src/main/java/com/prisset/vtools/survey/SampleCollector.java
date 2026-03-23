@@ -16,19 +16,20 @@ import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * v8: Modular tunnel miner. Thin coordinator that delegates to:
- *   - BreakHelper  (block breaking)
- *   - WalkHelper   (movement via input override)
- *   - AimHelper    (camera rotation + server packets)
- *   - MaterialIndex (ore scanning)
- *   - SlotHelper   (tool management)
- *   - SessionGuard (player detection)
+ * v2: 12-state FSM tunnel miner with full human behavior simulation.
  *
- * Simple loop:
- *   1. If ore in reach -> break it
- *   2. If tunnel blocks ahead -> break them
- *   3. If path clear -> walk 1 block forward
- *   4. Repeat
+ * Delegates to:
+ *   - AimHelper       (Bezier rotation, Perlin jitter, no raw packets)
+ *   - WalkHelper       (float acceleration, sprint, strafe drift)
+ *   - BreakHelper      (pre-break delay, swing variation)
+ *   - IdleBehavior     (look-around, pauses, jumps, crouch)
+ *   - FatigueModel     (session speed variation)
+ *   - PathPlanner      (imperfect pathing, Y-drift, order shuffle)
+ *   - ToolManager      (delayed tool switching)
+ *   - HumanTiming      (multimodal delays)
+ *   - NoiseGenerator   (Perlin noise for all variation)
+ *   - MaterialIndex    (ore scan with miss chance)
+ *   - SessionGuard     (player detection)
  */
 public final class SampleCollector {
 
@@ -53,7 +54,6 @@ public final class SampleCollector {
         MINEABLE.add(Blocks.EMERALD_ORE); MINEABLE.add(Blocks.DEEPSLATE_EMERALD_ORE);
     }
 
-    // Ore Y-level: {minY, maxY, peakY}
     private static final Map<String, int[]> ORE_Y = new LinkedHashMap<>();
     static {
         ORE_Y.put("diamond",  new int[]{-64, 16, -59});
@@ -66,35 +66,61 @@ public final class SampleCollector {
         ORE_Y.put("coal",     new int[]{0, 320, 96});
     }
 
-    public enum State { IDLE, BREAKING, WALKING, DESCENDING }
+    // 12-state FSM
+    public enum State {
+        IDLE,
+        INITIALIZING,
+        SCANNING,
+        PRE_AIM,
+        AIMING,
+        TOOL_SWITCH,
+        MINING,
+        POST_MINE,
+        PRE_WALK,
+        WALKING,
+        IDLE_PAUSE,
+        DESCENDING
+    }
 
     private static final SampleCollector INSTANCE = new SampleCollector();
 
-    // Helpers
+    // Sub-components
     private final BreakHelper breaker = new BreakHelper();
     private final WalkHelper walker = new WalkHelper();
     private final AimHelper aim = new AimHelper();
+    private final IdleBehavior idleBehavior = new IdleBehavior();
+    private final FatigueModel fatigue = new FatigueModel();
+    private final PathPlanner pathPlanner = new PathPlanner();
+    private final ToolManager toolManager = new ToolManager();
 
     // State
     private State state = State.IDLE;
+    private State previousState = State.SCANNING;
     private Direction mainDir;
     private int targetY;
     private boolean reachedTargetY;
+
+    // Timing
+    private long sessionTicks;
+    private long ticksSinceLastIdle;
     private int cooldown;
 
-    // Block queue: tunnel blocks to break in sequence (feet, head, etc.)
+    // Block queue
     private final Deque<BlockPos> breakQueue = new ArrayDeque<>();
+    private BlockPos currentBreakTarget;
 
-    // Descend phase: 0=break staircase, 1=walk into gap
+    // Descend
     private int descPhase;
 
     // Counters
     private final Map<String, Integer> minedCounts = new HashMap<>();
+    private int totalBlocksMined;
 
     private SampleCollector() {}
     public static SampleCollector instance() { return INSTANCE; }
     public State getState() { return state; }
     public WalkHelper getWalkHelper() { return walker; }
+    public IdleBehavior getIdleBehavior() { return idleBehavior; }
     public Map<String, Integer> getMinedCounts() { return Collections.unmodifiableMap(minedCounts); }
 
     // ===================== START / STOP =====================
@@ -104,26 +130,36 @@ public final class SampleCollector {
         this.mainDir = facing;
         this.targetY = computeBestY(prefs);
         this.reachedTargetY = false;
-        this.cooldown = rnd(8, 16);
+        this.sessionTicks = 0;
+        this.ticksSinceLastIdle = 0;
+        this.cooldown = 0;
         this.descPhase = 0;
+        this.totalBlocksMined = 0;
         this.breakQueue.clear();
         this.minedCounts.clear();
+        this.currentBreakTarget = null;
+
         this.breaker.reset();
         this.walker.stopWalking();
         this.aim.clear();
+        this.idleBehavior.stop();
+        this.fatigue.reset(0);
+        this.pathPlanner.reset();
+        this.toolManager.reset();
 
-        MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.player != null) {
-            aim.face(dirYaw(mainDir), 0f);
-            state = State.BREAKING;
-        }
+        state = State.INITIALIZING;
+        // Initial look-around before starting work
+        cooldown = HumanTiming.scanDuration();
     }
 
     public void stop() {
         breaker.reset();
         walker.stopWalking();
         aim.clear();
+        idleBehavior.stop();
+        toolManager.reset();
         breakQueue.clear();
+        currentBreakTarget = null;
         state = State.IDLE;
     }
 
@@ -147,147 +183,258 @@ public final class SampleCollector {
 
         ClientPlayerEntity player = mc.player;
         ClientWorld world = mc.world;
+        sessionTicks++;
 
+        // Safety checks (always)
         if (SessionGuard.checkAndDisconnect(mc, prefs.getSurveyRadius())) { stop(); return; }
         if (allGoalsMet(prefs)) { leave(mc); return; }
 
-        // Camera smooth every tick
-        aim.tick(player);
+        // Camera jitter ALWAYS (even during idle/cooldown)
+        aim.tick(player, sessionTicks);
 
-        // Cooldown (human pause between actions)
+        // Fatigue
+        float fatigueSpeed = fatigue.getSpeedMultiplier(sessionTicks);
+
+        // Idle trigger check (not during IDLE_PAUSE or INITIALIZING)
+        if (state != State.IDLE_PAUSE && state != State.INITIALIZING) {
+            float idleMult = fatigue.getIdleChanceMultiplier(sessionTicks);
+            if (HumanTiming.shouldTriggerIdle(ticksSinceLastIdle, totalBlocksMined, sessionTicks)) {
+                previousState = state;
+                state = State.IDLE_PAUSE;
+                idleBehavior.start(totalBlocksMined, sessionTicks);
+                ticksSinceLastIdle = 0;
+                return;
+            }
+        }
+        ticksSinceLastIdle++;
+
+        // Cooldown (universal pause between state transitions)
         if (cooldown > 0) {
             cooldown--;
-            walker.wantForward = false;
+            walker.wantForward = 0;
+            walker.wantStrafe = 0;
             walker.wantJump = false;
-            if (cooldown % 5 == 0) aim.drift();
+            walker.wantSprint = false;
             return;
         }
 
+        // State machine
         switch (state) {
-            case BREAKING -> tickBreaking(mc, player, world, prefs);
+            case INITIALIZING -> tickInitializing(mc, player, world, prefs);
+            case SCANNING -> tickScanning(mc, player, world, prefs);
+            case PRE_AIM -> tickPreAim(fatigueSpeed);
+            case AIMING -> tickAiming(mc, player, world, prefs);
+            case TOOL_SWITCH -> tickToolSwitch(player);
+            case MINING -> tickMining(mc, player, world, prefs);
+            case POST_MINE -> tickPostMine(fatigueSpeed);
+            case PRE_WALK -> tickPreWalk(mc, player, world, prefs, fatigueSpeed);
             case WALKING -> tickWalking(mc, player, world, prefs);
-            case DESCENDING -> tickDescending(mc, player, world, prefs);
-            default -> {}
+            case IDLE_PAUSE -> tickIdlePause(player);
+            case DESCENDING -> tickDescending(mc, player, world, prefs, fatigueSpeed);
         }
     }
 
-    // ===================== BREAKING =====================
+    // ===================== STATE HANDLERS =====================
 
-    private void tickBreaking(MinecraftClient mc, ClientPlayerEntity player,
+    private void tickInitializing(MinecraftClient mc, ClientPlayerEntity player,
+                                   ClientWorld world, DisplayPrefs prefs) {
+        // Initial look-around: drift camera to get bearings
+        if (aim.isIdle()) {
+            float yaw = pathPlanner.adjustedYaw(mainDir, sessionTicks);
+            aim.face(player, yaw, 4f);
+        }
+
+        // After initial scan period, start working
+        state = State.SCANNING;
+    }
+
+    private void tickScanning(MinecraftClient mc, ClientPlayerEntity player,
                                ClientWorld world, DisplayPrefs prefs) {
-        walker.wantForward = false;
-        walker.wantJump = false;
+        walker.wantForward = 0;
+        walker.wantSprint = false;
 
-        // Y-level check first
-        if (!reachedTargetY && Math.abs(player.getBlockPos().getY() - targetY) > 3) {
-            state = State.DESCENDING;
-            descPhase = 0;
-            return;
-        }
-        reachedTargetY = true;
-
-        // If breaker is active, let it work
-        if (breaker.hasTarget()) {
-            aim.aimAt(player, breaker.getTarget());
-            breaker.tick(player, world);
-
-            if (breaker.isDone()) {
-                trackOre(world, breaker.getTarget());
-                cooldown = rnd(1, 2);
+        // Y-level check
+        if (!reachedTargetY) {
+            int adjustedY = pathPlanner.adjustedY(targetY, sessionTicks);
+            if (Math.abs(player.getBlockPos().getY() - adjustedY) > 3) {
+                state = State.DESCENDING;
+                descPhase = 0;
+                return;
             }
+            reachedTargetY = true;
+        }
+
+        // Check break queue first
+        if (pickFromQueue(player, world)) {
+            currentBreakTarget = breaker.getTarget();
+            state = State.PRE_AIM;
+            cooldown = HumanTiming.fatigued(HumanTiming.aimSettle(), fatigue.getSpeedMultiplier(sessionTicks));
             return;
         }
 
-        // Pick next from queue
-        if (pickFromQueue(player, world)) return;
-
-        // Scan for ore in reach
+        // Scan for ore
         BlockPos ore = findBestOre(player, world, prefs);
         if (ore != null) {
+            currentBreakTarget = ore;
             breaker.setTarget(ore);
             aim.aimAt(player, ore);
+            state = State.PRE_AIM;
+            cooldown = HumanTiming.fatigued(HumanTiming.aimSettle(), fatigue.getSpeedMultiplier(sessionTicks));
             return;
         }
 
-        // Queue tunnel blocks ahead (head first, then feet — top-down for gravel)
+        // Queue tunnel blocks
         BlockPos feet = player.getBlockPos();
         BlockPos aFeet = feet.offset(mainDir);
         BlockPos aHead = aFeet.up();
 
         // Lava check
-        if (MaterialIndex.hasAdjacentLava(world, aFeet)
-                || MaterialIndex.hasAdjacentLava(world, aHead)) {
+        if (MaterialIndex.hasAdjacentLava(world, aFeet) || MaterialIndex.hasAdjacentLava(world, aHead)) {
             leave(mc);
             return;
         }
 
-        if (isMineable(player, world, aHead)) breakQueue.add(aHead);
-        if (isMineable(player, world, aFeet)) breakQueue.add(aFeet);
+        // Get corridor blocks with imperfection
+        List<BlockPos> corridor = GridLayout.corridorSegment(feet, mainDir);
+        List<BlockPos> ordered = pathPlanner.shuffleMineOrder(corridor);
 
-        if (pickFromQueue(player, world)) return;
-
-        // Nothing to break — path clear, start walking
-        startWalking(player, world, mc);
-    }
-
-    private boolean pickFromQueue(ClientPlayerEntity player, ClientWorld world) {
-        while (!breakQueue.isEmpty()) {
-            BlockPos next = breakQueue.poll();
-            if (isMineable(player, world, next)) {
-                breaker.setTarget(next);
-                aim.aimAt(player, next);
-                return true;
+        for (BlockPos pos : ordered) {
+            if (isMineable(player, world, pos)) {
+                breakQueue.add(pos);
             }
         }
-        return false;
+
+        if (pickFromQueue(player, world)) {
+            currentBreakTarget = breaker.getTarget();
+            state = State.PRE_AIM;
+            cooldown = HumanTiming.fatigued(HumanTiming.aimSettle(), fatigue.getSpeedMultiplier(sessionTicks));
+            return;
+        }
+
+        // Nothing to break -- walk forward
+        state = State.PRE_WALK;
+        cooldown = HumanTiming.fatigued(HumanTiming.walkStart(), fatigue.getSpeedMultiplier(sessionTicks));
     }
 
-    // ===================== WALKING =====================
+    private void tickPreAim(float fatigueSpeed) {
+        // Pre-aim delay already consumed by cooldown
+        // Now start aiming
+        state = State.AIMING;
+    }
 
-    private void startWalking(ClientPlayerEntity player, ClientWorld world, MinecraftClient mc) {
-        if (!walker.startWalk(player, world, mainDir)) {
-            // Unsafe ahead (void/lava) — try descending
+    private void tickAiming(MinecraftClient mc, ClientPlayerEntity player,
+                             ClientWorld world, DisplayPrefs prefs) {
+        // Aim is ticked globally in main tick()
+        // Wait until aimed
+        if (!aim.isAimed()) return;
+
+        // Check if we need tool switch
+        if (!SlotHelper.isHoldingUsablePickaxe(player)) {
+            toolManager.requestTool(player);
+            state = State.TOOL_SWITCH;
+            return;
+        }
+
+        state = State.MINING;
+    }
+
+    private void tickToolSwitch(ClientPlayerEntity player) {
+        if (toolManager.tick(player)) {
+            state = State.MINING;
+        }
+    }
+
+    private void tickMining(MinecraftClient mc, ClientPlayerEntity player,
+                             ClientWorld world, DisplayPrefs prefs) {
+        if (currentBreakTarget == null) {
+            state = State.POST_MINE;
+            cooldown = HumanTiming.fatigued(HumanTiming.postMine(), fatigue.getSpeedMultiplier(sessionTicks));
+            return;
+        }
+
+        // Keep aim locked on target
+        if (aim.getState() != AimHelper.AimState.LOCKED && aim.getState() != AimHelper.AimState.SETTLING) {
+            aim.aimAt(player, currentBreakTarget);
+        }
+
+        breaker.tick(player, world);
+
+        if (breaker.isDone()) {
+            trackOre(world, currentBreakTarget);
+            totalBlocksMined++;
+            breaker.acknowledge();
+            currentBreakTarget = null;
+
+            state = State.POST_MINE;
+            cooldown = HumanTiming.fatigued(HumanTiming.postMine(), fatigue.getSpeedMultiplier(sessionTicks));
+        }
+    }
+
+    private void tickPostMine(float fatigueSpeed) {
+        // Post-mine delay consumed by cooldown
+        // Check for more work
+        state = State.SCANNING;
+    }
+
+    private void tickPreWalk(MinecraftClient mc, ClientPlayerEntity player,
+                              ClientWorld world, DisplayPrefs prefs, float fatigueSpeed) {
+        // Determine walk distance
+        int blocks = pathPlanner.walkBlocks();
+
+        // Face walking direction with slight drift
+        float walkYaw = pathPlanner.adjustedYaw(mainDir, sessionTicks);
+        aim.face(player, walkYaw, 4f);
+
+        if (!walker.startWalk(player, world, mainDir, blocks)) {
+            // Unsafe ahead
             if (!reachedTargetY || Math.abs(player.getBlockPos().getY() - targetY) > 3) {
                 state = State.DESCENDING;
                 descPhase = 0;
             } else {
-                // Can't go anywhere — stop
                 leave(mc);
             }
             return;
         }
-        aim.face(dirYaw(mainDir), 4f);
+
         state = State.WALKING;
     }
 
     private void tickWalking(MinecraftClient mc, ClientPlayerEntity player,
                               ClientWorld world, DisplayPrefs prefs) {
-        boolean done = walker.tick(player);
+        boolean done = walker.tick(player, sessionTicks);
         if (done) {
-            state = State.BREAKING;
-            cooldown = rnd(1, 3);
+            state = State.SCANNING;
+            cooldown = HumanTiming.fatigued(HumanTiming.walkPause(), fatigue.getSpeedMultiplier(sessionTicks));
         }
     }
 
-    // ===================== DESCENDING =====================
+    private void tickIdlePause(ClientPlayerEntity player) {
+        boolean done = idleBehavior.tick(player, aim, walker);
+        if (done) {
+            // Restore previous state or go to scanning
+            state = State.SCANNING;
+            cooldown = HumanTiming.gaussianDelay(3, 1);
+        }
+    }
 
     private void tickDescending(MinecraftClient mc, ClientPlayerEntity player,
-                                 ClientWorld world, DisplayPrefs prefs) {
+                                 ClientWorld world, DisplayPrefs prefs, float fatigueSpeed) {
         int curY = player.getBlockPos().getY();
+        int adjustedY = pathPlanner.adjustedY(targetY, sessionTicks);
 
-        if (Math.abs(curY - targetY) <= 3) {
+        if (Math.abs(curY - adjustedY) <= 3) {
             reachedTargetY = true;
             walker.stopWalking();
-            state = State.BREAKING;
-            cooldown = rnd(3, 6);
+            state = State.SCANNING;
+            cooldown = HumanTiming.fatigued(HumanTiming.descPause(), fatigueSpeed);
             return;
         }
 
-        boolean down = curY > targetY;
+        boolean down = curY > adjustedY;
 
         if (descPhase == 0) {
             // Break staircase blocks
-            walker.wantForward = false;
+            walker.wantForward = 0;
             walker.wantJump = false;
 
             if (breaker.hasTarget()) {
@@ -295,7 +442,9 @@ public final class SampleCollector {
                 breaker.tick(player, world);
                 if (breaker.isDone()) {
                     trackOre(world, breaker.getTarget());
-                    cooldown = rnd(0, 1);
+                    totalBlocksMined++;
+                    breaker.acknowledge();
+                    cooldown = HumanTiming.fatigued(HumanTiming.breakToBreak(), fatigueSpeed);
                 }
                 return;
             }
@@ -306,45 +455,65 @@ public final class SampleCollector {
             BlockPos feet = player.getBlockPos();
             BlockPos ahead = feet.offset(mainDir);
 
+            List<BlockPos> descBlocks = new ArrayList<>();
             if (down) {
-                queueMineable(player, world, ahead.up());
-                queueMineable(player, world, ahead);
-                queueMineable(player, world, ahead.down());
+                descBlocks.add(ahead.up());
+                descBlocks.add(ahead);
+                descBlocks.add(ahead.down());
             } else {
-                queueMineable(player, world, ahead);
-                queueMineable(player, world, ahead.up());
-                queueMineable(player, world, ahead.up(2));
+                descBlocks.add(ahead);
+                descBlocks.add(ahead.up());
+                descBlocks.add(ahead.up(2));
+            }
+
+            // Shuffle order for imperfection
+            descBlocks = pathPlanner.shuffleMineOrder(descBlocks);
+
+            for (BlockPos pos : descBlocks) {
+                if (isMineable(player, world, pos)) {
+                    breakQueue.add(pos);
+                }
             }
 
             if (pickFromQueue(player, world)) return;
 
-            // All clear — walk into gap
+            // All clear -- walk into gap
             descPhase = 1;
-            walker.wantForward = false;
+            walker.wantForward = 0;
         }
 
         if (descPhase == 1) {
-            aim.face(dirYaw(mainDir), down ? 25f : -20f);
+            float pitch = down ? 25f : -20f;
+            aim.face(player, pathPlanner.adjustedYaw(mainDir, sessionTicks), pitch);
 
-            walker.wantForward = true;
+            walker.wantForward = 0.6f; // not full speed for stairs
             walker.wantJump = !down && player.isOnGround();
 
             int newY = player.getBlockPos().getY();
             boolean yMoved = down ? (newY < curY) : (newY > curY);
 
             if (yMoved) {
-                walker.wantForward = false;
+                walker.wantForward = 0;
                 walker.wantJump = false;
                 descPhase = 0;
-                cooldown = rnd(1, 2);
+                cooldown = HumanTiming.fatigued(HumanTiming.descPause(), fatigueSpeed);
             }
         }
     }
 
-    private void queueMineable(ClientPlayerEntity player, ClientWorld world, BlockPos pos) {
-        if (isMineable(player, world, pos)) {
-            breakQueue.add(pos);
+    // ===================== BLOCK QUEUE =====================
+
+    private boolean pickFromQueue(ClientPlayerEntity player, ClientWorld world) {
+        while (!breakQueue.isEmpty()) {
+            BlockPos next = breakQueue.poll();
+            if (isMineable(player, world, next)) {
+                breaker.setTarget(next);
+                aim.aimAt(player, next);
+                currentBreakTarget = next;
+                return true;
+            }
         }
+        return false;
     }
 
     // ===================== ORE SCANNING =====================
@@ -431,21 +600,5 @@ public final class SampleCollector {
         if (prefs.isOreCoal())     { int w = 10  + prefs.getCntCoal();     if (w > bestW) { bestW = w; bestOre = "coal"; }}
         if (bestOre != null && ORE_Y.containsKey(bestOre)) return ORE_Y.get(bestOre)[2];
         return -59;
-    }
-
-    // ===================== MATH =====================
-
-    private static float dirYaw(Direction dir) {
-        return switch (dir) {
-            case SOUTH -> 0f;
-            case WEST -> 90f;
-            case NORTH -> 180f;
-            case EAST -> -90f;
-            default -> 0f;
-        };
-    }
-
-    private static int rnd(int min, int max) {
-        return ThreadLocalRandom.current().nextInt(min, max + 1);
     }
 }
