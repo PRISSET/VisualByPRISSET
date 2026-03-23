@@ -76,11 +76,9 @@ public final class BuildMaterialHud {
                 ctx.drawItem(iconStack, x - 2, y - 2);
             }
 
-            // Short name (strip "minecraft:")
-            String name = entry.blockId;
-            int colon = name.indexOf(':');
-            if (colon >= 0) name = name.substring(colon + 1);
-            if (name.length() > 14) name = name.substring(0, 14) + "..";
+            // Localized name (Russian if lang pack present)
+            String name = block.getName().getString();
+            if (name.length() > 16) name = name.substring(0, 16) + "..";
 
             int nameColor = 0xFFB0B0B8;
             ctx.drawTextWithShadow(tr, name, x + 18, y + 1, nameColor);
