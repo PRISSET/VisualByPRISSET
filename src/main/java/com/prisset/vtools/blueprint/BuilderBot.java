@@ -1,6 +1,5 @@
 package com.prisset.vtools.blueprint;
 
-import net.minecraft.block.BlockState;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.world.ClientWorld;
@@ -17,21 +16,22 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Iterator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * Adaptive builder bot that walks to each block and places it.
+ * Adaptive builder bot. Walks to each block, places it, moves on.
  *
- * Core behavior:
- * - Strict layer-by-layer (Y=0 complete before Y=1)
- * - Within each layer, always picks the NEAREST reachable block to the player
- * - Walks to blocks it can't reach, stops at comfortable placement distance
- * - Sneaks when placing against interactive blocks (chests, furnaces, etc.)
- * - Defers blocks that can't be placed yet (no support, player in the way)
- * - Post-placement adjustment for repeater delay, comparator mode
+ * Design principles:
+ * - Layer-by-layer (Y=0 complete before Y=1)
+ * - Within a layer, always picks NEAREST block to player
+ * - Blocks stay in layer until placed in world (never lost)
+ * - Blocks that can't be placed now (no support, occupied) are skipped, not removed
+ * - Periodically rescans layer to catch changed conditions
+ * - Sends sneak packet to server before interacting to prevent opening containers
  */
 public final class BuilderBot {
 
@@ -39,9 +39,9 @@ public final class BuilderBot {
     private static final BuilderBot INSTANCE = new BuilderBot();
 
     private static final double PLACE_REACH = 4.5;
-    private static final double COMFORTABLE_DIST = 3.0; // stop walking at this distance
+    private static final double COMFORTABLE_DIST = 3.0;
     private static final int WALK_TIMEOUT = 200;
-    private static final int MAX_DEFERRED_ROUNDS = 8;
+    private static final int SKIP_COOLDOWN = 3; // ticks to wait before retrying skipped blocks
 
     public enum State {
         IDLE, PLANNING, PICK, EQUIP, WALKING, AIM, PLACE, ADJUST, COOLDOWN, DONE, PAUSED
@@ -49,11 +49,12 @@ public final class BuilderBot {
 
     private State state = State.IDLE;
 
-    // Layer data: each layer is a mutable list, blocks are removed when placed
     private List<List<BuildQueue.PlaceEntry>> layers;
     private int layerIdx;
-    private List<BuildQueue.PlaceEntry> deferred;
-    private int deferredRounds;
+
+    // Tracks blocks we tried and failed in current scan pass (to avoid retrying same block instantly)
+    private Set<BlockPos> skippedThisPass;
+    private int passRetryTicks; // countdown before clearing skipped set and retrying
 
     private int placedCount;
     private int totalCount;
@@ -61,11 +62,13 @@ public final class BuilderBot {
     private int blocksSinceBreak;
 
     private BuildQueue.PlaceEntry currentEntry;
-    private Direction currentFace; // cached face for current placement
+    private Direction currentFace;
     private int aimTicks;
     private int walkTicks;
     private int adjustClicks;
     private int adjustCooldown;
+
+    private int stallCounter; // how many consecutive PICK cycles found nothing to place in a layer
 
     private BuilderBot() {}
     public static BuilderBot instance() { return INSTANCE; }
@@ -83,17 +86,17 @@ public final class BuilderBot {
         placedCount = 0;
         blocksSinceBreak = 0;
         layerIdx = 0;
-        deferredRounds = 0;
-        deferred = new ArrayList<>();
+        stallCounter = 0;
+        skippedThisPass = new HashSet<>();
         LOG.info("Builder started");
     }
 
     public void stop() {
         state = State.IDLE;
         layers = null;
-        deferred = null;
         currentEntry = null;
         currentFace = null;
+        skippedThisPass = null;
         releaseKeys();
         LOG.info("Builder stopped ({} placed)", placedCount);
     }
@@ -135,15 +138,15 @@ public final class BuilderBot {
     }
 
     // ==========================================================
-    // PLANNING: generate all layers
+    // PLANNING
     // ==========================================================
 
     private void tickPlanning(MinecraftClient mc) {
         layers = BuildQueue.generateLayers(mc.world, mc.player);
         layerIdx = 0;
-        if (deferred == null) deferred = new ArrayList<>();
-        deferred.clear();
-        deferredRounds = 0;
+        stallCounter = 0;
+        if (skippedThisPass == null) skippedThisPass = new HashSet<>();
+        skippedThisPass.clear();
 
         totalCount = 0;
         for (var layer : layers) totalCount += layer.size();
@@ -159,39 +162,41 @@ public final class BuilderBot {
     }
 
     // ==========================================================
-    // PICK: find the nearest placeable block in current layer
+    // PICK: find nearest block in current layer that needs placing
+    //
+    // Blocks are NEVER removed from layer by PICK. They are only
+    // removed after confirmed placement in PLACE. This prevents
+    // block loss.
     // ==========================================================
 
     private void tickPick(MinecraftClient mc) {
         ClientPlayerEntity player = mc.player;
         ClientWorld world = mc.world;
 
-        // Advance through layers
         while (layerIdx < layers.size()) {
             List<BuildQueue.PlaceEntry> layer = layers.get(layerIdx);
 
-            // Remove already-placed blocks from layer
+            // Clean up already-placed blocks (confirmed in world)
             layer.removeIf(e -> {
                 String actual = SchematicData.encodeState(world.getBlockState(e.worldPos));
                 return e.blockState.equals(actual);
             });
 
             if (layer.isEmpty()) {
+                // Layer complete
                 layerIdx++;
+                stallCounter = 0;
+                skippedThisPass.clear();
                 continue;
             }
 
-            // Find nearest block that we can attempt to place
+            // Find nearest block we haven't skipped this pass
             BuildQueue.PlaceEntry best = null;
             double bestDist = Double.MAX_VALUE;
             Vec3d playerPos = player.getPos();
 
             for (BuildQueue.PlaceEntry entry : layer) {
-                // Skip blocks player is occupying
-                if (isPlayerOccupying(player, entry.worldPos)) continue;
-
-                // Skip blocks with no support
-                if (!hasSupport(world, entry.worldPos)) continue;
+                if (skippedThisPass.contains(entry.worldPos)) continue;
 
                 double dist = playerPos.squaredDistanceTo(Vec3d.ofCenter(entry.worldPos));
                 if (dist < bestDist) {
@@ -202,43 +207,57 @@ public final class BuilderBot {
 
             if (best != null) {
                 currentEntry = best;
-                layer.remove(best);
+                stallCounter = 0;
                 state = State.EQUIP;
                 return;
             }
 
-            // All remaining blocks in this layer are deferred (no support / player blocking)
-            // Move them to deferred list and try next layer or retry
-            deferred.addAll(layer);
-            layer.clear();
-            layerIdx++;
-        }
-
-        // All layers exhausted — check deferred
-        if (!deferred.isEmpty() && deferredRounds < MAX_DEFERRED_ROUNDS) {
-            deferredRounds++;
-            layers.add(new ArrayList<>(deferred));
-            deferred.clear();
-            // Don't increment layerIdx — we just added a new layer at the end
+            // All blocks in layer were skipped — wait a bit then retry
+            stallCounter++;
+            if (stallCounter > 3) {
+                // Clear skips and try again — conditions may have changed
+                skippedThisPass.clear();
+                stallCounter = 0;
+                // Also do a full re-plan if stuck for too long
+                if (passRetryTicks > 20) {
+                    state = State.PLANNING;
+                    return;
+                }
+                passRetryTicks++;
+            }
+            // Stay in PICK, will retry next tick
             return;
         }
 
-        // Truly done or stuck
+        // All layers done — re-plan to check if anything remains
         state = State.PLANNING;
     }
 
     // ==========================================================
-    // EQUIP: get the right block in hand, then check distance
+    // EQUIP: get block in hand, check distance
     // ==========================================================
 
     private void tickEquip(MinecraftClient mc) {
         ClientPlayerEntity player = mc.player;
+        ClientWorld world = mc.world;
         BlockPos target = currentEntry.worldPos;
 
-        // Re-check: already placed?
-        String actual = SchematicData.encodeState(mc.world.getBlockState(target));
+        // Already placed?
+        String actual = SchematicData.encodeState(world.getBlockState(target));
         if (currentEntry.blockState.equals(actual)) {
             state = State.PICK;
+            return;
+        }
+
+        // Player occupying this position — skip for now
+        if (isPlayerOccupying(player, target)) {
+            skipCurrent();
+            return;
+        }
+
+        // No support — skip for now (will retry when neighbors are placed)
+        if (!hasSupport(world, target)) {
+            skipCurrent();
             return;
         }
 
@@ -247,8 +266,8 @@ public final class BuilderBot {
         if (!InventoryHelper.isHolding(player, blockId)) {
             boolean found = InventoryHelper.equipBlock(player, blockId);
             if (!found) {
-                // Material not in inventory, skip this block
-                state = State.PICK;
+                // Material missing — skip, maybe other blocks can be placed first
+                skipCurrent();
                 return;
             }
             cooldownTicks = 1;
@@ -256,7 +275,7 @@ public final class BuilderBot {
             return;
         }
 
-        // Distance check
+        // Distance check — walk if too far
         double dist = player.getEyePos().distanceTo(Vec3d.ofCenter(target));
         if (dist > PLACE_REACH) {
             walkTicks = 0;
@@ -264,12 +283,11 @@ public final class BuilderBot {
             return;
         }
 
-        // Close enough — find a face to place against
-        currentFace = findBestPlaceFace(mc.world, player, target);
+        // Close enough — find a face
+        currentFace = findBestPlaceFace(world, player, target);
         if (currentFace == null) {
-            // Can't find a face even though we're close — defer
-            deferred.add(currentEntry);
-            state = State.PICK;
+            // Close but no valid face — skip, maybe conditions change
+            skipCurrent();
             return;
         }
 
@@ -277,8 +295,17 @@ public final class BuilderBot {
         state = State.AIM;
     }
 
+    /**
+     * Mark current block as skipped this pass. It stays in the layer
+     * and will be retried when skippedThisPass is cleared.
+     */
+    private void skipCurrent() {
+        skippedThisPass.add(currentEntry.worldPos);
+        state = State.PICK;
+    }
+
     // ==========================================================
-    // WALKING: move toward the target block
+    // WALKING
     // ==========================================================
 
     private void tickWalking(MinecraftClient mc) {
@@ -288,16 +315,14 @@ public final class BuilderBot {
 
         if (walkTicks > WALK_TIMEOUT) {
             releaseKeys();
-            deferred.add(currentEntry);
-            state = State.PICK;
+            skipCurrent();
             return;
         }
 
-        // Check if we're now close enough to place
+        // Close enough to try placing?
         double distToTarget = player.getEyePos().distanceTo(Vec3d.ofCenter(target));
         if (distToTarget <= COMFORTABLE_DIST) {
             releaseKeys();
-            // Re-enter EQUIP to find face now that we're close
             state = State.EQUIP;
             return;
         }
@@ -315,14 +340,13 @@ public final class BuilderBot {
             return;
         }
 
-        // Face the walk direction
         float yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
         player.setYaw(lerpAngle(player.getYaw(), yaw, 0.35f));
 
         mc.options.forwardKey.setPressed(true);
         mc.options.sprintKey.setPressed(distXZ > 6.0);
 
-        // Jump over obstacles
+        // Jump over obstacles if stuck
         if (player.isOnGround() && walkTicks > 4) {
             Vec3d vel = player.getVelocity();
             double speed = vel.x * vel.x + vel.z * vel.z;
@@ -335,23 +359,20 @@ public final class BuilderBot {
     }
 
     // ==========================================================
-    // AIM: look at the placement face
+    // AIM
     // ==========================================================
 
     private void tickAim(MinecraftClient mc) {
         ClientPlayerEntity player = mc.player;
         BlockPos target = currentEntry.worldPos;
 
-        // Re-find face (player may have moved slightly)
         Direction face = findBestPlaceFace(mc.world, player, target);
         if (face == null) {
-            deferred.add(currentEntry);
-            state = State.PICK;
+            skipCurrent();
             return;
         }
         currentFace = face;
 
-        // For directional blocks, orient player correctly
         float targetYaw;
         Map<String, String> props = parseProperties(currentEntry.blockState);
         String facingProp = props.get("facing");
@@ -387,7 +408,7 @@ public final class BuilderBot {
     }
 
     // ==========================================================
-    // PLACE: actually place the block
+    // PLACE
     // ==========================================================
 
     private void tickPlace(MinecraftClient mc) {
@@ -395,20 +416,15 @@ public final class BuilderBot {
         ClientWorld world = mc.world;
         BlockPos target = currentEntry.worldPos;
 
-        // Final safety
         if (isPlayerOccupying(player, target)) {
-            deferred.add(currentEntry);
-            state = State.PICK;
+            skipCurrent();
             return;
         }
 
         Direction face = currentFace;
+        if (face == null) face = findBestPlaceFace(world, player, target);
         if (face == null) {
-            face = findBestPlaceFace(world, player, target);
-        }
-        if (face == null) {
-            deferred.add(currentEntry);
-            state = State.PICK;
+            skipCurrent();
             return;
         }
 
@@ -416,28 +432,25 @@ public final class BuilderBot {
         Direction clickFace = face.getOpposite();
         Vec3d hitPos = getFaceHitPoint(target, face);
 
-        // Final reach check
         double reachDist = player.getEyePos().distanceTo(hitPos);
         if (reachDist > PLACE_REACH) {
-            // Got too far somehow, walk again
             walkTicks = 0;
             state = State.WALKING;
             return;
         }
 
         BlockHitResult hit = new BlockHitResult(hitPos, clickFace, neighbor, false);
-
         sneakInteract(mc, player, hit);
         player.swingHand(Hand.MAIN_HAND);
 
         boolean placed = !world.getBlockState(target).isAir();
         if (placed) {
             placedCount++;
+            passRetryTicks = 0; // progress was made, reset stall tracker
         }
 
         blocksSinceBreak++;
 
-        // Post-placement adjustment (repeater delay, comparator mode)
         int clicks = getRequiredAdjustClicks(currentEntry.blockState);
         if (placed && clicks > 0) {
             adjustClicks = clicks;
@@ -450,7 +463,7 @@ public final class BuilderBot {
     }
 
     // ==========================================================
-    // ADJUST: post-placement right-clicks (repeater delay, etc.)
+    // ADJUST
     // ==========================================================
 
     private void tickAdjust(MinecraftClient mc) {
@@ -469,7 +482,6 @@ public final class BuilderBot {
 
         Vec3d hitPos = Vec3d.ofCenter(target).add(0, 0.25, 0);
         BlockHitResult hit = new BlockHitResult(hitPos, Direction.UP, target, false);
-
         sneakInteract(mc, player, hit);
 
         adjustClicks--;
@@ -477,7 +489,7 @@ public final class BuilderBot {
     }
 
     // ==========================================================
-    // COOLDOWN: anti-detection pause between placements
+    // COOLDOWN
     // ==========================================================
 
     private void tickCooldown() {
@@ -496,34 +508,20 @@ public final class BuilderBot {
     }
 
     // ==========================================================
-    // SNEAK INTERACT: server-aware sneaked block interaction
+    // SNEAK INTERACT
     // ==========================================================
 
-    /**
-     * Place a block while sneaking, properly notifying both client and server.
-     *
-     * The server decides whether to open container GUIs based on the sneaking
-     * state it knows about (via ClientCommandC2SPacket). Simply setting
-     * input.sneaking is not enough because sendMovementPackets() runs later
-     * and may miss the brief sneak toggle.
-     *
-     * Sequence: send PRESS_SHIFT -> set client sneak -> interact -> unset sneak -> send RELEASE_SHIFT
-     */
     private void sneakInteract(MinecraftClient mc, ClientPlayerEntity player, BlockHitResult hit) {
-        // Tell server we're sneaking
         player.networkHandler.sendPacket(
             new ClientCommandC2SPacket(player, ClientCommandC2SPacket.Mode.PRESS_SHIFT_KEY));
 
-        // Set client-side sneak so shouldCancelInteraction() returns true
         boolean wasSneaking = player.input.sneaking;
         player.input.sneaking = true;
 
         mc.interactionManager.interactBlock(player, Hand.MAIN_HAND, hit);
 
-        // Restore client-side sneak
         player.input.sneaking = wasSneaking;
 
-        // Tell server we stopped sneaking
         player.networkHandler.sendPacket(
             new ClientCommandC2SPacket(player, ClientCommandC2SPacket.Mode.RELEASE_SHIFT_KEY));
     }
@@ -618,10 +616,6 @@ public final class BuilderBot {
         return playerBox.intersects(blockBox);
     }
 
-    /**
-     * Find the best face to place against.
-     * Only considers faces within PLACE_REACH from player's eyes.
-     */
     private Direction findBestPlaceFace(ClientWorld world, ClientPlayerEntity player, BlockPos target) {
         Vec3d eyes = player.getEyePos();
         Direction best = null;
@@ -629,7 +623,6 @@ public final class BuilderBot {
 
         for (Direction dir : Direction.values()) {
             BlockPos neighbor = target.offset(dir);
-
             if (world.getBlockState(neighbor).isAir()) continue;
 
             Vec3d facePoint = getFaceHitPoint(target, dir);
@@ -652,10 +645,6 @@ public final class BuilderBot {
             .add(Vec3d.of(clickFace.getVector()).multiply(0.5));
     }
 
-    /**
-     * Find a position beside the target block for the player to stand.
-     * Picks the side closest to the player's current position, 2 blocks out.
-     */
     private Vec3d findStandPosition(ClientPlayerEntity player, BlockPos target) {
         Vec3d playerPos = player.getPos();
         Vec3d targetCenter = Vec3d.ofCenter(target);
