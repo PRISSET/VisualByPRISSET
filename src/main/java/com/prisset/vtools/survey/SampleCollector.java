@@ -7,27 +7,32 @@ import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
-import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.world.ClientWorld;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
-import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 
 import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * v6: Position-relative tunnel miner with simulated keyboard movement.
+ * v7: Reliable tunnel miner.
  *
- * Core loop: MINE blocks ahead -> WALK forward -> scan walls -> repeat.
- * All coordinates relative to player's current position, never absolute offsets.
- * Movement via simulated W-key (movementForward), not setVelocity.
- * Fast camera: instant for forward blocks, quick lerp for side ore.
+ * Movement via MoveRequest read by MovementInputMixin (injected into KeyboardInput.tick RETURN).
+ * This guarantees input is applied AFTER MC reads physical keys, so it cannot be reset.
+ *
+ * Floor-safe: checks ground ahead before walking. Will not walk into voids.
+ * Position-relative: all targets computed from player's current position.
+ * Fast camera: near-instant for forward blocks, quick lerp for ore.
  */
 public final class SampleCollector {
 
-    // Ore Y-level data: {minY, maxY, peakY}
+    // Movement request — read by MovementInputMixin each tick
+    public static final class MoveRequest {
+        public boolean forward, jump, sneak;
+    }
+
+    // Ore Y-level: {minY, maxY, peakY}
     private static final Map<String, int[]> ORE_Y = new LinkedHashMap<>();
     static {
         ORE_Y.put("diamond",  new int[]{-64, 16, -59});
@@ -61,58 +66,52 @@ public final class SampleCollector {
         MINEABLE.add(Blocks.EMERALD_ORE); MINEABLE.add(Blocks.DEEPSLATE_EMERALD_ORE);
     }
 
-    public enum State { IDLE, MINING, WALKING, DESCENDING }
+    public enum State { IDLE, BREAKING, WALKING, DESCENDING }
 
     private static final SampleCollector INSTANCE = new SampleCollector();
 
+    // State
     private State state = State.IDLE;
     private Direction mainDir;
     private int targetY;
     private boolean reachedTargetY;
 
+    // Movement request (consumed by mixin)
+    private volatile MoveRequest moveReq;
+
     // Breaking
     private BlockPos breakTarget;
     private Direction breakFace;
     private boolean breakStarted;
-
-    // After current break finishes, break these next (e.g. head block after feet block)
     private final Deque<BlockPos> pendingBreaks = new ArrayDeque<>();
 
-    // Ore detour: after mining ore, resume tunnel from this state
-    private BlockPos oreTarget;
-
-    // Camera
+    // Camera target
     private float wantYaw, wantPitch;
-    private boolean fastAim; // true = instant snap, false = smooth lerp
 
     // Walking
     private BlockPos walkGoal;
     private int walkTicks;
-    private int walkMaxTicks;
+    private Vec3d lastWalkPos;
 
-    // Pause between actions (human-like)
+    // Descend stepping
+    private int descPhase; // 0=break, 1=walk
+
+    // Human-like pause
     private int cooldown;
 
-    // Descending: blocks mined in current staircase step
-    private int descStepPhase;
+    // Scan throttle
+    private int stepsSinceScan;
 
     // Counters
     private final Map<String, Integer> minedCounts = new HashMap<>();
 
-    // Scan throttle: only scan every N blocks mined in tunnel
-    private int blocksSinceLastScan;
-    private static final int SCAN_INTERVAL = 2;
-
-    // Movement key simulation state
-    private boolean wasPressingForward;
-    private boolean wasPressingJump;
-
     private SampleCollector() {}
     public static SampleCollector instance() { return INSTANCE; }
     public State getState() { return state; }
+    public MoveRequest getMoveRequest() { return moveReq; }
     public Map<String, Integer> getMinedCounts() { return Collections.unmodifiableMap(minedCounts); }
 
-    // ========== START / STOP ==========
+    // ===================== START / STOP =====================
 
     public void start(Direction facing) {
         DisplayPrefs prefs = VToolsMod.getPrefs();
@@ -121,36 +120,30 @@ public final class SampleCollector {
         this.reachedTargetY = false;
         this.breakTarget = null;
         this.breakStarted = false;
-        this.oreTarget = null;
         this.pendingBreaks.clear();
         this.minedCounts.clear();
-        this.cooldown = rnd(10, 25);
-        this.blocksSinceLastScan = 0;
-        this.descStepPhase = 0;
+        this.cooldown = rnd(8, 20);
+        this.stepsSinceScan = 0;
+        this.descPhase = 0;
         this.walkGoal = null;
-        this.wasPressingForward = false;
-        this.wasPressingJump = false;
+        this.moveReq = null;
 
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc.player != null) {
-            this.wantYaw = directionYaw(mainDir);
+            this.wantYaw = dirYaw(mainDir);
             this.wantPitch = 0f;
-            this.fastAim = true;
-            this.state = State.MINING;
+            this.state = State.BREAKING;
         }
     }
 
     public void stop() {
-        releaseKeys();
+        moveReq = null;
         abortBreak();
-        state = State.IDLE;
-        breakTarget = null;
-        oreTarget = null;
         pendingBreaks.clear();
-        walkGoal = null;
+        state = State.IDLE;
     }
 
-    private void stopAndLeave(MinecraftClient mc) {
+    private void leave(MinecraftClient mc) {
         stop();
         DisplayPrefs p = VToolsMod.getPrefs();
         p.setSurveyEnabled(false);
@@ -158,7 +151,7 @@ public final class SampleCollector {
         if (p.isSurveyAutoLeave()) SessionGuard.disconnect(mc);
     }
 
-    // ========== MAIN TICK ==========
+    // ===================== MAIN TICK =====================
 
     public void tick() {
         MinecraftClient mc = MinecraftClient.getInstance();
@@ -172,86 +165,108 @@ public final class SampleCollector {
         ClientWorld world = mc.world;
 
         if (SessionGuard.checkAndDisconnect(mc, prefs.getSurveyRadius())) { stop(); return; }
-        if (allGoalsMet(prefs)) { stopAndLeave(mc); return; }
+        if (allGoalsMet(prefs)) { leave(mc); return; }
 
         // Camera every tick
-        applyCameraStep(player);
+        smoothCamera(player);
 
-        // Cooldown between actions
         if (cooldown > 0) {
             cooldown--;
-            // Idle head sway while waiting
-            if (cooldown % 7 == 0) driftHead();
+            moveReq = null;
+            if (cooldown % 6 == 0) driftHead();
             return;
         }
 
         switch (state) {
-            case MINING -> tickMining(mc, player, world, prefs);
+            case BREAKING -> tickBreaking(mc, player, world, prefs);
             case WALKING -> tickWalking(mc, player, world, prefs);
             case DESCENDING -> tickDescending(mc, player, world, prefs);
             default -> {}
         }
     }
 
-    // ========== MINING ==========
+    // ===================== BREAKING STATE =====================
+    // Stands still, breaks blocks ahead and nearby ore.
+    // When nothing left to break ahead, transitions to WALKING.
 
-    private void tickMining(MinecraftClient mc, ClientPlayerEntity player, ClientWorld world, DisplayPrefs prefs) {
-        releaseKeys();
+    private void tickBreaking(MinecraftClient mc, ClientPlayerEntity player,
+                               ClientWorld world, DisplayPrefs prefs) {
+        moveReq = null; // no movement while breaking
 
-        // Check Y-level first
+        // Y-level check
         if (!reachedTargetY) {
             int curY = player.getBlockPos().getY();
             if (Math.abs(curY - targetY) > 3) {
                 state = State.DESCENDING;
-                descStepPhase = 0;
+                descPhase = 0;
                 return;
             }
             reachedTargetY = true;
         }
 
-        // If we have an active break target, keep breaking it
+        // Active break? Continue it.
         if (breakTarget != null) {
-            if (!continueBreaking(mc, player, world, prefs)) return;
-            // Block broken or invalid — fall through to pick next
+            if (!tickContinueBreak(mc, player, world)) return; // still breaking
+            // done — fall through to pick next
         }
 
-        // Pick next break target
-        if (!pickNextTarget(mc, player, world, prefs)) {
-            // Nothing to break ahead — time to walk forward
-            transitionToWalking(player);
+        // Try pending queue
+        if (pickFromPending(player, world)) return;
+
+        // Scan for ore in reach
+        BlockPos ore = findBestOre(player, world, prefs);
+        if (ore != null) {
+            beginBreak(player, ore, false);
+            return;
         }
+
+        // Queue tunnel blocks ahead (feet + head)
+        BlockPos feet = player.getBlockPos();
+        BlockPos aFeet = feet.offset(mainDir);
+        BlockPos aHead = aFeet.up();
+
+        // Lava safety
+        if (MaterialIndex.hasAdjacentLava(world, aFeet)
+                || MaterialIndex.hasAdjacentLava(world, aHead)) {
+            // Cannot dig forward — stop
+            leave(mc);
+            return;
+        }
+
+        // Queue head first (break top-down so gravel/sand doesn't refill)
+        boolean queued = false;
+        if (isBreakable(player, world, aHead)) { pendingBreaks.add(aHead); queued = true; }
+        if (isBreakable(player, world, aFeet)) { pendingBreaks.add(aFeet); queued = true; }
+
+        if (queued && pickFromPending(player, world)) return;
+
+        // Nothing to break — path is clear, walk forward
+        goWalk(player);
     }
 
     /**
-     * Continue breaking current target. Returns true when done (block broken or invalid).
+     * Continues breaking the current target. Returns true when done/aborted.
      */
-    private boolean continueBreaking(MinecraftClient mc, ClientPlayerEntity player,
-                                      ClientWorld world, DisplayPrefs prefs) {
+    private boolean tickContinueBreak(MinecraftClient mc, ClientPlayerEntity player,
+                                       ClientWorld world) {
         BlockState bs = world.getBlockState(breakTarget);
-
-        // Block already gone
         if (bs.isAir() || bs.getHardness(world, breakTarget) < 0) {
-            onBlockBroken(world);
+            finishBreak(world);
             return true;
         }
 
-        // Reach check every tick
         double dist = player.getEyePos().distanceTo(Vec3d.ofCenter(breakTarget));
         if (dist > 4.5) {
             abortBreak();
             return true;
         }
 
-        // Wait for camera to be close enough before starting to break
-        float yawErr = Math.abs(wrapAngle(player.getYaw() - wantYaw));
-        float pitchErr = Math.abs(player.getPitch() - wantPitch);
-        if (yawErr > 4f || pitchErr > 4f) {
-            // Still turning — don't start breaking yet
-            return false;
-        }
+        // Camera must be close before we start swinging
+        float ye = Math.abs(wrapAngle(player.getYaw() - wantYaw));
+        float pe = Math.abs(player.getPitch() - wantPitch);
+        if (ye > 5f || pe > 5f) return false; // still turning
 
-        // Ensure pickaxe
-        if (!ensurePickaxe(player)) return false;
+        if (!ensureTool(player)) return false;
 
         if (!breakStarted) {
             mc.interactionManager.attackBlock(breakTarget, breakFace);
@@ -260,16 +275,14 @@ public final class SampleCollector {
             mc.interactionManager.updateBlockBreakingProgress(breakTarget, breakFace);
         }
 
-        // Check if broken after this tick's progress
         if (world.getBlockState(breakTarget).isAir()) {
-            onBlockBroken(world);
+            finishBreak(world);
             return true;
         }
-
         return false;
     }
 
-    private void onBlockBroken(ClientWorld world) {
+    private void finishBreak(ClientWorld world) {
         if (breakTarget != null) {
             String cat = MaterialIndex.oreCategory(world.getBlockState(breakTarget).getBlock());
             if (!"unknown".equals(cat)) {
@@ -278,284 +291,213 @@ public final class SampleCollector {
         }
         breakTarget = null;
         breakStarted = false;
-        // Tiny human pause between blocks
         cooldown = rnd(1, 2);
     }
 
-    /**
-     * Find next block to break. Returns true if a target was set.
-     * Priority: pending queue -> ore detour -> tunnel blocks ahead.
-     */
-    private boolean pickNextTarget(MinecraftClient mc, ClientPlayerEntity player,
-                                    ClientWorld world, DisplayPrefs prefs) {
-        // 1. Pending breaks from multi-block sequences (feet+head)
+    private boolean pickFromPending(ClientPlayerEntity player, ClientWorld world) {
         while (!pendingBreaks.isEmpty()) {
             BlockPos next = pendingBreaks.poll();
-            if (canBreak(player, world, next)) {
-                startBreak(player, next, false);
+            if (isBreakable(player, world, next)) {
+                beginBreak(player, next, true);
                 return true;
             }
         }
-
-        // 2. Check for ore detour
-        BlockPos ore = findBestOre(player, world, prefs);
-        if (ore != null) {
-            startBreak(player, ore, false);
-            return true;
-        }
-
-        // 3. Tunnel: break blocks directly ahead (feet + head level)
-        BlockPos feet = player.getBlockPos();
-        BlockPos aheadFeet = feet.offset(mainDir);
-        BlockPos aheadHead = aheadFeet.up();
-
-        boolean anyQueued = false;
-
-        // Lava safety
-        if (MaterialIndex.hasAdjacentLava(world, aheadFeet)
-                || MaterialIndex.hasAdjacentLava(world, aheadHead)) {
-            // Skip this column, walk sideways or just walk forward into air
-            return false;
-        }
-
-        // Queue feet and head if solid
-        if (canBreak(player, world, aheadHead)) {
-            startBreak(player, aheadHead, true);
-            if (canBreak(player, world, aheadFeet)) {
-                pendingBreaks.add(aheadFeet);
-            }
-            anyQueued = true;
-        } else if (canBreak(player, world, aheadFeet)) {
-            startBreak(player, aheadFeet, true);
-            anyQueued = true;
-        }
-
-        // Also check floor: if block below ahead is air, we'd fall. Check and handle.
-        BlockPos floorAhead = aheadFeet.down();
-        BlockState floorState = world.getBlockState(floorAhead);
-        if (floorState.isAir() && !anyQueued) {
-            // Gap ahead — can still walk (will fall 1 block, acceptable)
-        }
-
-        return anyQueued;
+        return false;
     }
 
-    private boolean canBreak(ClientPlayerEntity player, ClientWorld world, BlockPos pos) {
-        BlockState bs = world.getBlockState(pos);
-        if (bs.isAir()) return false;
-        if (bs.getHardness(world, pos) < 0) return false;
-        if (!MINEABLE.contains(bs.getBlock())) return false;
-        double dist = player.getEyePos().distanceTo(Vec3d.ofCenter(pos));
-        return dist <= 4.5;
-    }
-
-    private void startBreak(ClientPlayerEntity player, BlockPos pos, boolean isTunnel) {
+    private void beginBreak(ClientPlayerEntity player, BlockPos pos, boolean isTunnel) {
         breakTarget = pos;
-        breakFace = bestFace(player, pos);
+        breakFace = facingFrom(player, pos);
         breakStarted = false;
-
-        // Camera: if block is directly ahead in tunnel direction, barely need to turn
-        Vec3d eyes = player.getEyePos();
-        Vec3d tc = Vec3d.ofCenter(pos);
-        double dx = tc.x - eyes.x, dy = tc.y - eyes.y, dz = tc.z - eyes.z;
-        double h = Math.sqrt(dx * dx + dz * dz);
-
-        float targetYaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
-        float targetPitch = (float) Math.toDegrees(-Math.atan2(dy, h));
-
-        // Add tiny human imprecision
-        targetYaw += jitter(0.4f);
-        targetPitch += jitter(0.25f);
-
-        wantYaw = targetYaw;
-        wantPitch = targetPitch;
-
-        // Fast aim for tunnel blocks (already mostly facing right way)
-        float yawDelta = Math.abs(wrapAngle(player.getYaw() - targetYaw));
-        fastAim = isTunnel && yawDelta < 30f;
+        aimAt(player, pos, isTunnel);
     }
 
-    // ========== WALKING ==========
+    // ===================== WALKING STATE =====================
+    // Bot walks exactly 1 block forward, then goes back to BREAKING.
 
-    private void transitionToWalking(ClientPlayerEntity player) {
+    private void goWalk(ClientPlayerEntity player) {
+        BlockPos feet = player.getBlockPos();
+        BlockPos ahead = feet.offset(mainDir);
+
+        // FLOOR CHECK: is there ground to stand on?
+        MinecraftClient mc = MinecraftClient.getInstance();
+        if (mc.world != null) {
+            BlockPos floor = ahead.down();
+            BlockState floorState = mc.world.getBlockState(floor);
+            // If floor is air, check one more below (2-block fall is ok in MC)
+            if (floorState.isAir()) {
+                BlockPos floor2 = floor.down();
+                BlockState floor2State = mc.world.getBlockState(floor2);
+                if (floor2State.isAir()) {
+                    // 3+ block drop — too dangerous, don't walk
+                    // Try to bridge: place block under
+                    // For now, just stop and mine downward to descend safely
+                    state = State.DESCENDING;
+                    descPhase = 0;
+                    return;
+                }
+                // 1-2 block drop is fine, MC handles it
+            }
+
+            // Lava under floor
+            if (MaterialIndex.hasAdjacentLava(mc.world, ahead)
+                    || MaterialIndex.hasAdjacentLava(mc.world, floor)) {
+                leave(mc);
+                return;
+            }
+        }
+
         state = State.WALKING;
-        walkGoal = player.getBlockPos().offset(mainDir);
+        walkGoal = ahead;
         walkTicks = 0;
-        walkMaxTicks = 15; // safety: if not arrived in 15 ticks, re-evaluate
+        lastWalkPos = player.getPos();
+        stepsSinceScan++;
 
-        // Face tunnel direction
-        wantYaw = directionYaw(mainDir);
-        wantPitch = 5f + jitter(3f); // slightly looking down, natural
-        fastAim = true;
-
-        blocksSinceLastScan++;
+        wantYaw = dirYaw(mainDir);
+        wantPitch = 4f + jitter(3f);
     }
 
-    private void tickWalking(MinecraftClient mc, ClientPlayerEntity player, ClientWorld world, DisplayPrefs prefs) {
-        BlockPos currentPos = player.getBlockPos();
+    private void tickWalking(MinecraftClient mc, ClientPlayerEntity player,
+                              ClientWorld world, DisplayPrefs prefs) {
         walkTicks++;
 
-        // Arrived at goal or passed it?
-        boolean arrived = false;
-        if (walkGoal != null) {
-            double distSq = player.getPos().squaredDistanceTo(
-                    walkGoal.getX() + 0.5, player.getPos().y, walkGoal.getZ() + 0.5);
-            arrived = distSq < 0.15;
+        // Check if arrived
+        double dx = (walkGoal.getX() + 0.5) - player.getPos().x;
+        double dz = (walkGoal.getZ() + 0.5) - player.getPos().z;
+        double hDistSq = dx * dx + dz * dz;
+        boolean arrived = hDistSq < 0.12;
 
-            // Also check if we've PASSED the goal (moved beyond it in mainDir)
-            if (!arrived) {
-                Vec3d toGoal = new Vec3d(
-                        walkGoal.getX() + 0.5 - player.getPos().x,
-                        0,
-                        walkGoal.getZ() + 0.5 - player.getPos().z);
-                Vec3d dirVec = Vec3d.of(mainDir.getVector());
-                double dot = toGoal.dotProduct(dirVec);
-                if (dot < -0.3) arrived = true; // passed it
-            }
+        // Check if passed goal
+        if (!arrived) {
+            Vec3d toGoal = new Vec3d(dx, 0, dz);
+            Vec3d dir = Vec3d.of(mainDir.getVector());
+            if (toGoal.dotProduct(dir) < -0.2) arrived = true;
         }
 
-        if (arrived || walkTicks > walkMaxTicks) {
-            releaseKeys();
+        if (arrived || walkTicks > 25) {
+            moveReq = null;
+            state = State.BREAKING;
 
-            // Scan for ore in walls
-            if (blocksSinceLastScan >= SCAN_INTERVAL) {
-                blocksSinceLastScan = 0;
-                // Brief pause to "look around" like a real player
-                cooldown = rnd(2, 5);
+            if (stepsSinceScan >= 2) {
+                stepsSinceScan = 0;
+                cooldown = rnd(2, 5); // pause to "look around"
             } else {
                 cooldown = rnd(0, 1);
             }
-
-            state = State.MINING;
             return;
         }
 
-        // Simulate W key
-        pressForward(mc, true);
+        // Request forward movement
+        MoveRequest req = new MoveRequest();
+        req.forward = true;
 
-        // Check if stuck (no horizontal movement)
-        if (walkTicks > 5) {
-            Vec3d vel = player.getVelocity();
-            double horizSpeed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
-            if (horizSpeed < 0.01 && player.isOnGround()) {
-                // Stuck — maybe need to jump over something
-                pressJump(mc, true);
-            } else {
-                pressJump(mc, false);
+        // Anti-stuck: if barely moved in last 4 ticks, jump
+        if (walkTicks > 4 && walkTicks % 4 == 0) {
+            Vec3d cur = player.getPos();
+            double movedSq = cur.squaredDistanceTo(lastWalkPos);
+            if (movedSq < 0.01) {
+                req.jump = true;
             }
+            lastWalkPos = cur;
         }
+
+        moveReq = req;
     }
 
-    // ========== DESCENDING ==========
+    // ===================== DESCENDING STATE =====================
+    // Digs a staircase down (or up) toward targetY.
+    // Phase 0: break blocks for one stair step.
+    // Phase 1: walk into the gap.
 
-    private void tickDescending(MinecraftClient mc, ClientPlayerEntity player, ClientWorld world, DisplayPrefs prefs) {
+    private void tickDescending(MinecraftClient mc, ClientPlayerEntity player,
+                                 ClientWorld world, DisplayPrefs prefs) {
         int curY = player.getBlockPos().getY();
 
-        // Reached target?
         if (Math.abs(curY - targetY) <= 3) {
             reachedTargetY = true;
-            releaseKeys();
-            state = State.MINING;
+            moveReq = null;
+            state = State.BREAKING;
             cooldown = rnd(3, 8);
-            descStepPhase = 0;
             return;
         }
 
-        boolean goingDown = curY > targetY;
+        boolean down = curY > targetY;
         BlockPos feet = player.getBlockPos();
 
-        // Staircase: each step = break blocks, then walk into the gap
-        // Phase 0: break blocks for this step
-        // Phase 1: walk into position
+        if (descPhase == 0) {
+            moveReq = null;
 
-        if (descStepPhase == 0) {
-            releaseKeys();
-
-            // If we have an active break target, keep going
+            // Continue active break
             if (breakTarget != null) {
-                if (!continueBreaking(mc, player, world, prefs)) return;
+                if (!tickContinueBreak(mc, player, world)) return;
             }
 
-            // Pick next block from pending
-            while (!pendingBreaks.isEmpty()) {
-                BlockPos next = pendingBreaks.poll();
-                if (canBreak(player, world, next)) {
-                    startBreak(player, next, false);
-                    return;
-                }
-            }
+            // Pick from pending
+            if (pickFromPending(player, world)) return;
 
-            // Queue staircase blocks for this step
-            if (goingDown) {
-                BlockPos ahead = feet.offset(mainDir);
-                // Clear: head level, feet level, one below
-                queueIfBreakable(player, world, ahead.up());
-                queueIfBreakable(player, world, ahead);
-                queueIfBreakable(player, world, ahead.down());
+            // Queue staircase blocks
+            BlockPos ahead = feet.offset(mainDir);
+            if (down) {
+                // Going down: clear ahead head, feet, and floor-ahead
+                queueBreakable(player, world, ahead.up());
+                queueBreakable(player, world, ahead);
+                queueBreakable(player, world, ahead.down());
             } else {
-                BlockPos ahead = feet.offset(mainDir);
-                // Clear: feet, head, one above head
-                queueIfBreakable(player, world, ahead);
-                queueIfBreakable(player, world, ahead.up());
-                queueIfBreakable(player, world, ahead.up(2));
+                // Going up: clear ahead feet, head, and above-head
+                queueBreakable(player, world, ahead);
+                queueBreakable(player, world, ahead.up());
+                queueBreakable(player, world, ahead.up(2));
             }
 
-            if (!pendingBreaks.isEmpty()) {
-                BlockPos next = pendingBreaks.poll();
-                startBreak(player, next, false);
-                return;
-            }
+            if (pickFromPending(player, world)) return;
 
-            // All blocks cleared for this step — transition to walking phase
-            descStepPhase = 1;
+            // All clear — walk into gap
+            descPhase = 1;
             walkTicks = 0;
+            lastWalkPos = player.getPos();
         }
 
-        if (descStepPhase == 1) {
-            // Walk forward into the gap
-            wantYaw = directionYaw(mainDir);
-            wantPitch = goingDown ? 25f : -20f;
-            fastAim = true;
+        if (descPhase == 1) {
+            wantYaw = dirYaw(mainDir);
+            wantPitch = down ? 30f : -25f;
 
-            pressForward(mc, true);
-            walkTicks++;
-
-            // Jump if going up
-            if (!goingDown && player.isOnGround()) {
-                pressJump(mc, true);
-            } else if (goingDown) {
-                pressJump(mc, false);
+            MoveRequest req = new MoveRequest();
+            req.forward = true;
+            if (!down && player.isOnGround()) {
+                req.jump = true;
             }
+            moveReq = req;
 
-            // Check if Y changed (stepped down/up)
+            walkTicks++;
             int newY = player.getBlockPos().getY();
-            boolean yChanged = goingDown ? (newY < curY) : (newY > curY);
+            boolean yMoved = down ? (newY < curY) : (newY > curY);
 
-            // Also check if we've moved horizontally at all
-            if (yChanged || walkTicks > 20) {
-                releaseKeys();
-                descStepPhase = 0;
+            if (yMoved || walkTicks > 25) {
+                moveReq = null;
+                descPhase = 0;
                 cooldown = rnd(1, 3);
             }
 
-            // Anti-stuck: if not moving for too long, try jumping
-            if (walkTicks > 8) {
-                Vec3d vel = player.getVelocity();
-                double horizSpeed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
-                if (horizSpeed < 0.01 && player.isOnGround()) {
-                    pressJump(mc, true);
+            // Anti-stuck
+            if (walkTicks > 6 && walkTicks % 4 == 0) {
+                Vec3d cur = player.getPos();
+                double movedSq = cur.squaredDistanceTo(lastWalkPos);
+                if (movedSq < 0.01 && player.isOnGround()) {
+                    req.jump = true;
+                    moveReq = req;
                 }
+                lastWalkPos = cur;
             }
         }
     }
 
-    private void queueIfBreakable(ClientPlayerEntity player, ClientWorld world, BlockPos pos) {
-        if (canBreak(player, world, pos)) {
+    private void queueBreakable(ClientPlayerEntity player, ClientWorld world, BlockPos pos) {
+        if (isBreakable(player, world, pos)) {
             pendingBreaks.add(pos);
         }
     }
 
-    // ========== ORE SCANNING ==========
+    // ===================== ORE SCANNING =====================
 
     private BlockPos findBestOre(ClientPlayerEntity player, ClientWorld world, DisplayPrefs prefs) {
         Set<Block> targets = MaterialIndex.buildTargetSet(prefs);
@@ -566,17 +508,14 @@ public final class SampleCollector {
             if (MaterialIndex.hasAdjacentLava(world, pos)) continue;
             double dist = player.getEyePos().distanceTo(Vec3d.ofCenter(pos));
             if (dist > 4.5) continue;
-
-            // Check if we already met the goal for this ore type
             String cat = MaterialIndex.oreCategory(world.getBlockState(pos).getBlock());
-            if (isOreGoalMet(cat, prefs)) continue;
-
+            if (goalMet(cat, prefs)) continue;
             return pos;
         }
         return null;
     }
 
-    private boolean isOreGoalMet(String cat, DisplayPrefs prefs) {
+    private boolean goalMet(String cat, DisplayPrefs prefs) {
         int goal = switch (cat) {
             case "diamond" -> prefs.getCntDiamond();
             case "gold" -> prefs.getCntGold();
@@ -588,90 +527,19 @@ public final class SampleCollector {
             case "coal" -> prefs.getCntCoal();
             default -> 0;
         };
-        if (goal == 0) return false; // 0 = unlimited
+        if (goal == 0) return false;
         return minedCounts.getOrDefault(cat, 0) >= goal;
     }
 
-    // ========== KEYBOARD SIMULATION ==========
+    // ===================== BLOCK HELPERS =====================
 
-    private void pressForward(MinecraftClient mc, boolean press) {
-        KeyBinding fwd = mc.options.forwardKey;
-        if (press && !wasPressingForward) {
-            KeyBinding.setKeyPressed(fwd.getDefaultKey(), true);
-            wasPressingForward = true;
-        } else if (!press && wasPressingForward) {
-            KeyBinding.setKeyPressed(fwd.getDefaultKey(), false);
-            wasPressingForward = false;
-        }
+    private boolean isBreakable(ClientPlayerEntity player, ClientWorld world, BlockPos pos) {
+        BlockState bs = world.getBlockState(pos);
+        if (bs.isAir()) return false;
+        if (bs.getHardness(world, pos) < 0) return false;
+        if (!MINEABLE.contains(bs.getBlock())) return false;
+        return player.getEyePos().distanceTo(Vec3d.ofCenter(pos)) <= 4.5;
     }
-
-    private void pressJump(MinecraftClient mc, boolean press) {
-        KeyBinding jump = mc.options.jumpKey;
-        if (press && !wasPressingJump) {
-            KeyBinding.setKeyPressed(jump.getDefaultKey(), true);
-            wasPressingJump = true;
-        } else if (!press && wasPressingJump) {
-            KeyBinding.setKeyPressed(jump.getDefaultKey(), false);
-            wasPressingJump = false;
-        }
-    }
-
-    private void releaseKeys() {
-        if (wasPressingForward || wasPressingJump) {
-            MinecraftClient mc = MinecraftClient.getInstance();
-            if (wasPressingForward) {
-                KeyBinding.setKeyPressed(mc.options.forwardKey.getDefaultKey(), false);
-                wasPressingForward = false;
-            }
-            if (wasPressingJump) {
-                KeyBinding.setKeyPressed(mc.options.jumpKey.getDefaultKey(), false);
-                wasPressingJump = false;
-            }
-        }
-    }
-
-    // ========== CAMERA ==========
-
-    private void applyCameraStep(ClientPlayerEntity player) {
-        if (fastAim) {
-            // Instant snap (± tiny jitter for human feel)
-            float yawErr = Math.abs(wrapAngle(player.getYaw() - wantYaw));
-            float pitchErr = Math.abs(player.getPitch() - wantPitch);
-            if (yawErr > 0.5f || pitchErr > 0.5f) {
-                // Fast but not literally instant — 2 ticks max
-                float speed = 0.65f + ThreadLocalRandom.current().nextFloat() * 0.15f;
-                player.setYaw(lerpAngle(player.getYaw(), wantYaw, speed));
-                player.setPitch(lerp(player.getPitch(), wantPitch, speed));
-            }
-        } else {
-            // Smooth lerp for side ore
-            float speed = 0.40f + ThreadLocalRandom.current().nextFloat() * 0.10f;
-            player.setYaw(lerpAngle(player.getYaw(), wantYaw, speed));
-            player.setPitch(lerp(player.getPitch(), wantPitch, speed));
-        }
-    }
-
-    private void driftHead() {
-        wantYaw += jitter(1.2f);
-        wantPitch += jitter(0.5f);
-    }
-
-    // ========== TOOLS ==========
-
-    private boolean ensurePickaxe(ClientPlayerEntity player) {
-        if (SlotHelper.isHoldingUsablePickaxe(player)) return true;
-        if (SlotHelper.selectBestPickaxe(player, Blocks.STONE.getDefaultState())) return true;
-        if (SlotHelper.pullPickaxeFromInventory(player)) {
-            cooldown = rnd(3, 6);
-            return false;
-        }
-        // No pickaxe at all — stop
-        MinecraftClient mc = MinecraftClient.getInstance();
-        stopAndLeave(mc);
-        return false;
-    }
-
-    // ========== BREAK HELPERS ==========
 
     private void abortBreak() {
         if (breakStarted) {
@@ -682,7 +550,7 @@ public final class SampleCollector {
         breakStarted = false;
     }
 
-    private static Direction bestFace(ClientPlayerEntity player, BlockPos pos) {
+    private static Direction facingFrom(ClientPlayerEntity player, BlockPos pos) {
         Vec3d diff = player.getEyePos().subtract(Vec3d.ofCenter(pos));
         Direction best = Direction.UP;
         double maxDot = Double.NEGATIVE_INFINITY;
@@ -693,7 +561,55 @@ public final class SampleCollector {
         return best;
     }
 
-    // ========== GOALS ==========
+    // ===================== CAMERA =====================
+
+    private void aimAt(ClientPlayerEntity player, BlockPos target, boolean isTunnel) {
+        Vec3d eyes = player.getEyePos();
+        Vec3d tc = Vec3d.ofCenter(target);
+        double dx = tc.x - eyes.x, dy = tc.y - eyes.y, dz = tc.z - eyes.z;
+        double h = Math.sqrt(dx * dx + dz * dz);
+        wantYaw = (float) Math.toDegrees(Math.atan2(-dx, dz)) + jitter(0.3f);
+        wantPitch = (float) Math.toDegrees(-Math.atan2(dy, h)) + jitter(0.2f);
+    }
+
+    private void smoothCamera(ClientPlayerEntity player) {
+        float ye = Math.abs(wrapAngle(player.getYaw() - wantYaw));
+        float pe = Math.abs(player.getPitch() - wantPitch);
+
+        // Speed based on angular distance: big turn = fast, small turn = precise
+        float speed;
+        if (ye < 10f && pe < 10f) {
+            speed = 0.55f; // close — snap quickly
+        } else if (ye < 30f) {
+            speed = 0.45f; // medium turn
+        } else {
+            speed = 0.35f; // big turn — still fast but not instant
+        }
+        speed += jitter(0.06f);
+
+        player.setYaw(lerpAngle(player.getYaw(), wantYaw, speed));
+        player.setPitch(lerp(player.getPitch(), wantPitch, speed));
+    }
+
+    private void driftHead() {
+        wantYaw += jitter(1.0f);
+        wantPitch += jitter(0.4f);
+    }
+
+    // ===================== TOOLS =====================
+
+    private boolean ensureTool(ClientPlayerEntity player) {
+        if (SlotHelper.isHoldingUsablePickaxe(player)) return true;
+        if (SlotHelper.selectBestPickaxe(player, Blocks.STONE.getDefaultState())) return true;
+        if (SlotHelper.pullPickaxeFromInventory(player)) {
+            cooldown = rnd(3, 6);
+            return false;
+        }
+        leave(MinecraftClient.getInstance());
+        return false;
+    }
+
+    // ===================== GOALS =====================
 
     private boolean allGoalsMet(DisplayPrefs p) {
         boolean any = false;
@@ -708,28 +624,26 @@ public final class SampleCollector {
         return any;
     }
 
-    // ========== Y-LEVEL ==========
+    // ===================== Y-LEVEL =====================
 
     private int computeBestY(DisplayPrefs prefs) {
         String bestOre = null;
-        int bestWeight = -1;
-
-        if (prefs.isOreDiamond())  { int w = 100 + prefs.getCntDiamond();  if (w > bestWeight) { bestWeight = w; bestOre = "diamond"; }}
-        if (prefs.isOreEmerald())  { int w = 90  + prefs.getCntEmerald();  if (w > bestWeight) { bestWeight = w; bestOre = "emerald"; }}
-        if (prefs.isOreGold())     { int w = 70  + prefs.getCntGold();     if (w > bestWeight) { bestWeight = w; bestOre = "gold"; }}
-        if (prefs.isOreLapis())    { int w = 60  + prefs.getCntLapis();    if (w > bestWeight) { bestWeight = w; bestOre = "lapis"; }}
-        if (prefs.isOreRedstone()) { int w = 50  + prefs.getCntRedstone(); if (w > bestWeight) { bestWeight = w; bestOre = "redstone"; }}
-        if (prefs.isOreIron())     { int w = 40  + prefs.getCntIron();     if (w > bestWeight) { bestWeight = w; bestOre = "iron"; }}
-        if (prefs.isOreCopper())   { int w = 30  + prefs.getCntCopper();   if (w > bestWeight) { bestWeight = w; bestOre = "copper"; }}
-        if (prefs.isOreCoal())     { int w = 10  + prefs.getCntCoal();     if (w > bestWeight) { bestWeight = w; bestOre = "coal"; }}
-
+        int bestW = -1;
+        if (prefs.isOreDiamond())  { int w = 100 + prefs.getCntDiamond();  if (w > bestW) { bestW = w; bestOre = "diamond"; }}
+        if (prefs.isOreEmerald())  { int w = 90  + prefs.getCntEmerald();  if (w > bestW) { bestW = w; bestOre = "emerald"; }}
+        if (prefs.isOreGold())     { int w = 70  + prefs.getCntGold();     if (w > bestW) { bestW = w; bestOre = "gold"; }}
+        if (prefs.isOreLapis())    { int w = 60  + prefs.getCntLapis();    if (w > bestW) { bestW = w; bestOre = "lapis"; }}
+        if (prefs.isOreRedstone()) { int w = 50  + prefs.getCntRedstone(); if (w > bestW) { bestW = w; bestOre = "redstone"; }}
+        if (prefs.isOreIron())     { int w = 40  + prefs.getCntIron();     if (w > bestW) { bestW = w; bestOre = "iron"; }}
+        if (prefs.isOreCopper())   { int w = 30  + prefs.getCntCopper();   if (w > bestW) { bestW = w; bestOre = "copper"; }}
+        if (prefs.isOreCoal())     { int w = 10  + prefs.getCntCoal();     if (w > bestW) { bestW = w; bestOre = "coal"; }}
         if (bestOre != null && ORE_Y.containsKey(bestOre)) return ORE_Y.get(bestOre)[2];
         return -59;
     }
 
-    // ========== MATH ==========
+    // ===================== MATH =====================
 
-    private static float directionYaw(Direction dir) {
+    private static float dirYaw(Direction dir) {
         return switch (dir) {
             case SOUTH -> 0f;
             case WEST -> 90f;
@@ -747,9 +661,7 @@ public final class SampleCollector {
         return (ThreadLocalRandom.current().nextFloat() - 0.5f) * range;
     }
 
-    private static float lerp(float a, float b, float t) {
-        return a + (b - a) * t;
-    }
+    private static float lerp(float a, float b, float t) { return a + (b - a) * t; }
 
     private static float lerpAngle(float a, float b, float t) {
         return a + wrapAngle(b - a) * t;
