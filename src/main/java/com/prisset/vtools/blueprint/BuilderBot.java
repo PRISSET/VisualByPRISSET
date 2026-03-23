@@ -4,6 +4,7 @@ import net.minecraft.block.BlockState;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.world.ClientWorld;
+import net.minecraft.network.packet.c2s.play.ClientCommandC2SPacket;
 import net.minecraft.util.Hand;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
@@ -426,12 +427,8 @@ public final class BuilderBot {
 
         BlockHitResult hit = new BlockHitResult(hitPos, clickFace, neighbor, false);
 
-        // Always sneak during placement to prevent opening containers
-        boolean wasSneaking = player.input.sneaking;
-        player.input.sneaking = true;
-        mc.interactionManager.interactBlock(player, Hand.MAIN_HAND, hit);
+        sneakInteract(mc, player, hit);
         player.swingHand(Hand.MAIN_HAND);
-        player.input.sneaking = wasSneaking;
 
         boolean placed = !world.getBlockState(target).isAir();
         if (placed) {
@@ -473,10 +470,7 @@ public final class BuilderBot {
         Vec3d hitPos = Vec3d.ofCenter(target).add(0, 0.25, 0);
         BlockHitResult hit = new BlockHitResult(hitPos, Direction.UP, target, false);
 
-        boolean wasSneaking = player.input.sneaking;
-        player.input.sneaking = true;
-        mc.interactionManager.interactBlock(player, Hand.MAIN_HAND, hit);
-        player.input.sneaking = wasSneaking;
+        sneakInteract(mc, player, hit);
 
         adjustClicks--;
         adjustCooldown = 2;
@@ -499,6 +493,39 @@ public final class BuilderBot {
             cooldownTicks = 2 + ThreadLocalRandom.current().nextInt(4);
         }
         state = State.COOLDOWN;
+    }
+
+    // ==========================================================
+    // SNEAK INTERACT: server-aware sneaked block interaction
+    // ==========================================================
+
+    /**
+     * Place a block while sneaking, properly notifying both client and server.
+     *
+     * The server decides whether to open container GUIs based on the sneaking
+     * state it knows about (via ClientCommandC2SPacket). Simply setting
+     * input.sneaking is not enough because sendMovementPackets() runs later
+     * and may miss the brief sneak toggle.
+     *
+     * Sequence: send PRESS_SHIFT -> set client sneak -> interact -> unset sneak -> send RELEASE_SHIFT
+     */
+    private void sneakInteract(MinecraftClient mc, ClientPlayerEntity player, BlockHitResult hit) {
+        // Tell server we're sneaking
+        player.networkHandler.sendPacket(
+            new ClientCommandC2SPacket(player, ClientCommandC2SPacket.Mode.PRESS_SHIFT_KEY));
+
+        // Set client-side sneak so shouldCancelInteraction() returns true
+        boolean wasSneaking = player.input.sneaking;
+        player.input.sneaking = true;
+
+        mc.interactionManager.interactBlock(player, Hand.MAIN_HAND, hit);
+
+        // Restore client-side sneak
+        player.input.sneaking = wasSneaking;
+
+        // Tell server we stopped sneaking
+        player.networkHandler.sendPacket(
+            new ClientCommandC2SPacket(player, ClientCommandC2SPacket.Mode.RELEASE_SHIFT_KEY));
     }
 
     // ==========================================================
