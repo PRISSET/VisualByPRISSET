@@ -1,8 +1,6 @@
 package com.prisset.vtools.mixin;
 
 import com.prisset.vtools.VToolsMod;
-import com.prisset.vtools.blueprint.GhostRenderer;
-import com.prisset.vtools.blueprint.SelectionRenderer;
 import com.prisset.vtools.config.DisplayPrefs;
 import com.prisset.vtools.render.OverlayPainter;
 import com.prisset.vtools.render.TrailRenderer;
@@ -37,10 +35,6 @@ public abstract class RenderPassMixin {
         DisplayPrefs prefs = VToolsMod.getPrefs();
         MinecraftClient client = MinecraftClient.getInstance();
         if (client.world == null || prefs == null) return;
-
-        // Blueprint rendering (independent of overlay toggle)
-        SelectionRenderer.render(matrices, camera, tickDelta);
-        GhostRenderer.render(matrices, camera, tickDelta);
 
         if (!prefs.isActive()) return;
 

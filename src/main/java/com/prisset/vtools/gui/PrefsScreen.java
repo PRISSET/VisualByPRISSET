@@ -1,14 +1,6 @@
 package com.prisset.vtools.gui;
 
-import com.prisset.vtools.blueprint.BlueprintPlacer;
-import com.prisset.vtools.blueprint.BlueprintScanner;
-import com.prisset.vtools.blueprint.BlueprintStorage;
-import com.prisset.vtools.blueprint.BuilderBot;
-import com.prisset.vtools.blueprint.BuildMaterialHud;
-import com.prisset.vtools.blueprint.SchematicData;
-import com.prisset.vtools.blueprint.SelectionManager;
 import com.prisset.vtools.config.DisplayPrefs;
-import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.font.TextRenderer;
@@ -78,85 +70,6 @@ public class PrefsScreen extends Screen {
         rows.add(new Slider("\u041a\u0440\u0430\u0441\u043d\u044b\u0439", 0, 255, prefs.getMenuR(), v -> prefs.setMenuR(v.intValue())));
         rows.add(new Slider("\u0417\u0435\u043b\u0451\u043d\u044b\u0439", 0, 255, prefs.getMenuG(), v -> prefs.setMenuG(v.intValue())));
         rows.add(new Slider("\u0421\u0438\u043d\u0438\u0439", 0, 255, prefs.getMenuB(), v -> prefs.setMenuB(v.intValue())));
-
-        // -- BLUEPRINT section --
-        rows.add(new Label("\u0427\u0415\u0420\u0422\u0401\u0416"));
-        rows.add(new Toggle("\u0420\u0435\u0436\u0438\u043c \u0432\u044b\u0434\u0435\u043b\u0435\u043d\u0438\u044f",
-            () -> SelectionManager.instance().isActive(),
-            v -> SelectionManager.instance().setActive(v)));
-        rows.add(new Button("\u0421\u043a\u0430\u043d\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0438 \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c", () -> {
-            MinecraftClient mc = MinecraftClient.getInstance();
-            if (mc.world == null) return;
-            SelectionManager sel = SelectionManager.instance();
-            if (!sel.isComplete()) return;
-            SchematicData data = BlueprintScanner.scan(mc.world);
-            if (data == null) return;
-            data.setName("build_" + System.currentTimeMillis() / 1000);
-            BlueprintStorage.save(data);
-        }));
-
-        // -- PLACEMENT section --
-        rows.add(new Label("\u0420\u0410\u0417\u041c\u0415\u0429\u0415\u041d\u0418\u0415"));
-
-        // List saved blueprints with load + delete buttons
-        java.util.List<String> saved = BlueprintStorage.listAll();
-        for (String bpName : saved) {
-            String display = bpName.length() > 18 ? bpName.substring(0, 18) + ".." : bpName;
-            rows.add(new Button("\u0417\u0430\u0433\u0440.: " + display, () -> {
-                BlueprintPlacer.instance().load(bpName);
-            }));
-            rows.add(new Button("\u0423\u0434\u0430\u043b\u0438\u0442\u044c: " + display, () -> {
-                BlueprintStorage.delete(bpName);
-                BlueprintPlacer placer = BlueprintPlacer.instance();
-                if (bpName.equals(placer.getLoadedName())) {
-                    placer.unload();
-                    BuilderBot.instance().stop();
-                }
-                // Refresh GUI
-                this.init();
-            }));
-        }
-
-        // Cursor placement mode: ghost follows crosshair, LMB to confirm
-        rows.add(new Toggle("\u0420\u0430\u0437\u043c\u0435\u0441\u0442\u0438\u0442\u044c \u043a\u0443\u0440\u0441\u043e\u0440\u043e\u043c",
-            () -> BlueprintPlacer.instance().isPlacementMode(),
-            v -> BlueprintPlacer.instance().setPlacementMode(v)));
-
-        rows.add(new Toggle("\u041f\u0440\u0435\u0432\u044c\u044e",
-            () -> BlueprintPlacer.instance().isPreviewing(),
-            v -> BlueprintPlacer.instance().setPreviewing(v)));
-
-        rows.add(new Button("\u041f\u043e\u0432\u0435\u0440\u043d\u0443\u0442\u044c 90\u00b0", () -> {
-            BlueprintPlacer.instance().rotateCW();
-        }));
-
-        rows.add(new Button("\u0421\u0431\u0440\u043e\u0441\u0438\u0442\u044c", () -> {
-            BlueprintPlacer.instance().unload();
-            BuilderBot.instance().stop();
-            BuildMaterialHud.setVisible(false);
-        }));
-
-        // -- BUILD section --
-        rows.add(new Label("\u0421\u0422\u0420\u041e\u0419\u041a\u0410"));
-
-        rows.add(new Toggle("\u041c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b HUD",
-            () -> BuildMaterialHud.isVisible(),
-            v -> BuildMaterialHud.setVisible(v)));
-
-        rows.add(new Button("\u0421\u0442\u0430\u0440\u0442", () -> {
-            BuilderBot.instance().start();
-        }));
-        rows.add(new Button("\u041f\u0430\u0443\u0437\u0430", () -> {
-            BuilderBot bot = BuilderBot.instance();
-            if (bot.getState() == BuilderBot.State.PAUSED) {
-                bot.resume();
-            } else {
-                bot.pause();
-            }
-        }));
-        rows.add(new Button("\u0421\u0442\u043e\u043f", () -> {
-            BuilderBot.instance().stop();
-        }));
 
         totalH = PAD + 14;
         for (Row r : rows) totalH += r instanceof Label ? LABEL_H : ROW_H;

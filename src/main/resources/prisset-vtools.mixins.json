@@ -7,11 +7,7 @@
     "KeyboardMixin",
     "InputTimingMixin",
     "ZoomMixin",
-    "BobViewMixin",
-    "BlueprintClickMixin",
-    "ScrollInterceptMixin",
-    "BuilderTickMixin",
-    "MaterialHudMixin"
+    "BobViewMixin"
   ],
   "injectors": {
     "defaultRequire": 1
