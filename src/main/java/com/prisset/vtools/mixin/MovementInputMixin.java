@@ -1,6 +1,7 @@
 package com.prisset.vtools.mixin;
 
 import com.prisset.vtools.survey.SampleCollector;
+import com.prisset.vtools.survey.WalkHelper;
 import net.minecraft.client.input.KeyboardInput;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -8,8 +9,8 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Injects AFTER KeyboardInput.tick() to override movement values.
- * This runs after MC reads physical key states, so our values won't be reset.
+ * Injects AFTER KeyboardInput.tick() RETURN to override movement values.
+ * Runs after MC reads physical keys, so our values are final.
  */
 @Mixin(KeyboardInput.class)
 public abstract class MovementInputMixin {
@@ -19,20 +20,17 @@ public abstract class MovementInputMixin {
         SampleCollector sc = SampleCollector.instance();
         if (sc.getState() == SampleCollector.State.IDLE) return;
 
-        SampleCollector.MoveRequest req = sc.getMoveRequest();
-        if (req == null) return;
+        WalkHelper walk = sc.getWalkHelper();
+        if (walk == null) return;
 
         KeyboardInput self = (KeyboardInput) (Object) this;
 
-        if (req.forward) {
+        if (walk.wantForward) {
             self.pressingForward = true;
             self.movementForward = 1.0f;
         }
-        if (req.jump) {
+        if (walk.wantJump) {
             self.jumping = true;
-        }
-        if (req.sneak) {
-            self.sneaking = true;
         }
     }
 }
