@@ -14,7 +14,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
@@ -37,7 +39,7 @@ public final class BuilderBot {
     private static final int WALK_TIMEOUT = 160;
 
     public enum State {
-        IDLE, PLANNING, EQUIP, WALKING, AIM, PLACE, COOLDOWN, DONE, PAUSED
+        IDLE, PLANNING, EQUIP, WALKING, AIM, PLACE, ADJUST, COOLDOWN, DONE, PAUSED
     }
 
     private State state = State.IDLE;
@@ -56,6 +58,8 @@ public final class BuilderBot {
     private BuildQueue.PlaceEntry currentEntry;
     private int aimTicks;
     private int walkTicks;
+    private int adjustClicks;   // remaining right-clicks for post-placement (repeater delay)
+    private int adjustCooldown; // ticks between adjust clicks
 
     private BuilderBot() {}
     public static BuilderBot instance() { return INSTANCE; }
@@ -118,6 +122,7 @@ public final class BuilderBot {
             case WALKING  -> tickWalking(mc);
             case AIM      -> tickAim(mc);
             case PLACE    -> tickPlace(mc);
+            case ADJUST   -> tickAdjust(mc);
             case COOLDOWN -> tickCooldown();
         }
     }
@@ -287,25 +292,43 @@ public final class BuilderBot {
             return;
         }
 
-        // Aim at the face center of the neighbor block
+        // For directional blocks (repeater, comparator), player must face opposite
+        // to the desired "facing" property so Minecraft orients the block correctly.
+        // Repeater/comparator facing = direction the output points = opposite of player look.
+        float targetYaw;
+        float targetPitch;
+
+        Map<String, String> props = parseProperties(currentEntry.blockState);
+        String facingProp = props.get("facing");
+        if (facingProp != null && isDirectionalPlacement(currentEntry.blockState)) {
+            Direction desired = directionFromName(facingProp);
+            if (desired != null) {
+                // Player must look OPPOSITE to the desired facing
+                Direction lookDir = desired.getOpposite();
+                targetYaw = directionToYaw(lookDir);
+            } else {
+                targetYaw = aimYawToward(player, getFaceHitPoint(target, face));
+            }
+        } else {
+            targetYaw = aimYawToward(player, getFaceHitPoint(target, face));
+        }
+
         Vec3d hitPoint = getFaceHitPoint(target, face);
         Vec3d eyes = player.getEyePos();
-        double dx = hitPoint.x - eyes.x;
         double dy = hitPoint.y - eyes.y;
-        double dz = hitPoint.z - eyes.z;
-        double distXZ = Math.sqrt(dx * dx + dz * dz);
+        double dxH = hitPoint.x - eyes.x;
+        double dzH = hitPoint.z - eyes.z;
+        double distXZ = Math.sqrt(dxH * dxH + dzH * dzH);
+        targetPitch = (float) Math.toDegrees(-Math.atan2(dy, distXZ));
 
-        float yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
-        float pitch = (float) Math.toDegrees(-Math.atan2(dy, distXZ));
-
-        player.setYaw(lerpAngle(player.getYaw(), yaw, 0.5f));
+        player.setYaw(lerpAngle(player.getYaw(), targetYaw, 0.5f));
         player.setPitch(MathHelper.clamp(
-            player.getPitch() + (pitch - player.getPitch()) * 0.5f, -90f, 90f));
+            player.getPitch() + (targetPitch - player.getPitch()) * 0.5f, -90f, 90f));
 
         aimTicks++;
         if (aimTicks >= 2) {
-            player.setYaw(yaw);
-            player.setPitch(MathHelper.clamp(pitch, -90f, 90f));
+            player.setYaw(targetYaw);
+            player.setPitch(MathHelper.clamp(targetPitch, -90f, 90f));
             state = State.PLACE;
         }
     }
@@ -353,6 +376,15 @@ public final class BuilderBot {
         blockIdx++;
         blocksSinceBreak++;
 
+        // Check if post-placement adjustment is needed (e.g. repeater delay)
+        int clicks = getRequiredAdjustClicks(currentEntry.blockState);
+        if (placed && clicks > 0) {
+            adjustClicks = clicks;
+            adjustCooldown = 2;
+            state = State.ADJUST;
+            return;
+        }
+
         if (blocksSinceBreak >= 15 + ThreadLocalRandom.current().nextInt(15)) {
             cooldownTicks = 15 + ThreadLocalRandom.current().nextInt(20);
             blocksSinceBreak = 0;
@@ -362,11 +394,135 @@ public final class BuilderBot {
         state = State.COOLDOWN;
     }
 
+    // -- ADJUST (post-placement: repeater delay clicks, etc.) --
+
+    private void tickAdjust(MinecraftClient mc) {
+        if (adjustCooldown > 0) {
+            adjustCooldown--;
+            return;
+        }
+
+        if (adjustClicks <= 0) {
+            // Done adjusting, go to cooldown
+            if (blocksSinceBreak >= 15 + ThreadLocalRandom.current().nextInt(15)) {
+                cooldownTicks = 15 + ThreadLocalRandom.current().nextInt(20);
+                blocksSinceBreak = 0;
+            } else {
+                cooldownTicks = 2 + ThreadLocalRandom.current().nextInt(4);
+            }
+            state = State.COOLDOWN;
+            return;
+        }
+
+        ClientPlayerEntity player = mc.player;
+        BlockPos target = currentEntry.worldPos;
+
+        // Right-click the placed block to cycle its state (e.g. repeater delay)
+        Vec3d hitPos = Vec3d.ofCenter(target).add(0, 0.25, 0);
+        BlockHitResult hit = new BlockHitResult(hitPos, Direction.UP, target, false);
+
+        boolean wasSneaking = player.isSneaking();
+        player.setSneaking(true);
+        mc.interactionManager.interactBlock(player, Hand.MAIN_HAND, hit);
+        player.setSneaking(wasSneaking);
+
+        adjustClicks--;
+        adjustCooldown = 2; // small delay between clicks for reliability
+    }
+
     // -- COOLDOWN --
 
     private void tickCooldown() {
         cooldownTicks--;
         if (cooldownTicks <= 0) state = State.EQUIP;
+    }
+
+    // ==========================================================
+    // BLOCK PROPERTY HELPERS
+    // ==========================================================
+
+    /**
+     * Parse "[prop=val,prop2=val2]" from a blockState string like
+     * "minecraft:repeater[delay=3,facing=north,locked=false,powered=false]"
+     */
+    private static Map<String, String> parseProperties(String blockState) {
+        Map<String, String> props = new HashMap<>();
+        int open = blockState.indexOf('[');
+        int close = blockState.indexOf(']');
+        if (open < 0 || close < 0 || close <= open + 1) return props;
+
+        String inner = blockState.substring(open + 1, close);
+        for (String pair : inner.split(",")) {
+            String[] kv = pair.split("=", 2);
+            if (kv.length == 2) props.put(kv[0].trim(), kv[1].trim());
+        }
+        return props;
+    }
+
+    /**
+     * How many right-clicks are needed after placement to reach the desired state.
+     * Repeater: default delay=1, each click +1 (up to 4). So delay=3 -> 2 clicks.
+     * Comparator: default mode=compare, one click -> subtract. So subtract -> 1 click.
+     */
+    private static int getRequiredAdjustClicks(String blockState) {
+        String blockId = blockState.contains("[") ? blockState.substring(0, blockState.indexOf('[')) : blockState;
+        Map<String, String> props = parseProperties(blockState);
+
+        if (blockId.equals("minecraft:repeater")) {
+            String delayStr = props.get("delay");
+            if (delayStr != null) {
+                int delay = Integer.parseInt(delayStr);
+                return delay - 1; // placed with delay=1, each click adds 1
+            }
+        }
+
+        if (blockId.equals("minecraft:comparator")) {
+            String mode = props.get("mode");
+            if ("subtract".equals(mode)) return 1;
+        }
+
+        return 0;
+    }
+
+    /**
+     * Whether this block's orientation depends on player facing direction at placement.
+     * Repeaters, comparators, stairs, pistons, etc.
+     */
+    private static boolean isDirectionalPlacement(String blockState) {
+        String blockId = blockState.contains("[") ? blockState.substring(0, blockState.indexOf('[')) : blockState;
+        return blockId.equals("minecraft:repeater")
+            || blockId.equals("minecraft:comparator")
+            || blockId.contains("piston")
+            || blockId.contains("observer");
+    }
+
+    private static Direction directionFromName(String name) {
+        return switch (name.toLowerCase()) {
+            case "north" -> Direction.NORTH;
+            case "south" -> Direction.SOUTH;
+            case "east"  -> Direction.EAST;
+            case "west"  -> Direction.WEST;
+            case "up"    -> Direction.UP;
+            case "down"  -> Direction.DOWN;
+            default -> null;
+        };
+    }
+
+    private static float directionToYaw(Direction dir) {
+        return switch (dir) {
+            case SOUTH -> 0f;
+            case WEST  -> 90f;
+            case NORTH -> 180f;
+            case EAST  -> -90f;
+            default -> 0f;
+        };
+    }
+
+    private static float aimYawToward(ClientPlayerEntity player, Vec3d point) {
+        Vec3d eyes = player.getEyePos();
+        double dx = point.x - eyes.x;
+        double dz = point.z - eyes.z;
+        return (float) Math.toDegrees(Math.atan2(-dx, dz));
     }
 
     // ==========================================================
