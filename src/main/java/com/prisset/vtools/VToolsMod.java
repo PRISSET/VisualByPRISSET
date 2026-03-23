@@ -3,7 +3,7 @@ package com.prisset.vtools;
 import com.prisset.vtools.config.DisplayPrefs;
 import com.prisset.vtools.gui.PrefsScreen;
 import com.prisset.vtools.input.SequenceListener;
-import com.prisset.vtools.mixin.WTapMixin;
+import com.prisset.vtools.input.WTapHandler;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.MinecraftClient;
@@ -21,7 +21,7 @@ public class VToolsMod implements ClientModInitializer {
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             tickCounter++;
             seq.tick(tickCounter);
-            WTapMixin.tickWTap();
+            WTapHandler.tick();
         });
     }
 
