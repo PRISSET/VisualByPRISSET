@@ -17,52 +17,69 @@ import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * Orchestrates the automated survey (mining) process.
- * Neutral naming: "SampleCollector" reads as a data-sampling utility.
+ * Orchestrates legitimate-looking automated mining.
  *
- * State machine with human-like delays:
- * IDLE -> DIGGING_CORRIDOR -> DIGGING_BRANCH -> MINING_ORE -> SEALING_LAVA -> PAUSED
+ * Rules for anti-cheat safety:
+ * - Only break blocks the player can SEE (exposed face, within 4.5 reach)
+ * - Never mine through walls (no x-ray behavior)
+ * - Smooth camera movement (slow lerp, never snap)
+ * - Human-like timing: random pauses, irregular intervals
+ * - Only collect ore when no lava threat nearby
+ * - Track ore counts, stop when goals reached
+ * - Descend to optimal Y before starting horizontal mining
  */
 public final class SampleCollector {
 
     public enum Phase {
         IDLE,
-        NAVIGATING,
+        DESCENDING,
         DIGGING_CORRIDOR,
         DIGGING_BRANCH_LEFT,
         DIGGING_BRANCH_RIGHT,
         MINING_ORE,
         SEALING_LAVA,
         SWAPPING_TOOL,
-        PAUSED
+        RETURNING_TO_CORRIDOR
     }
 
     private static final SampleCollector INSTANCE = new SampleCollector();
+    private static final float CAM_LERP = 0.12f;
+    private static final float CAM_LERP_JITTER = 0.06f;
 
     private Phase phase = Phase.IDLE;
     private Direction mainDir;
+    private BlockPos corridorOrigin;
     private int corridorStep;
     private int branchProgress;
     private Direction currentBranchDir;
+    private int targetY;
 
     // Block-break state
     private BlockPos breakTarget;
-    private int breakTicks;
     private boolean isBreaking;
 
-    // Ore vein queue
+    // Ore queue (only exposed, reachable ores)
     private final Deque<BlockPos> oreQueue = new ArrayDeque<>();
 
     // Lava seal queue
     private final Deque<BlockPos> sealQueue = new ArrayDeque<>();
 
+    // Ore counters (mined this session)
+    private final Map<String, Integer> minedCounts = new HashMap<>();
+
     // Human-like timing
     private int waitTicks;
     private int ticksSinceAction;
-    private long lastActionTime;
+
+    // Camera target (we lerp towards this smoothly)
+    private float targetYaw, targetPitch;
+    private boolean cameraLocked;
 
     // Tool swap cooldown
     private int swapCooldown;
+
+    // Saved corridor position for returning after branch
+    private BlockPos savedCorridorPos;
 
     private SampleCollector() {}
 
@@ -70,18 +87,31 @@ public final class SampleCollector {
 
     public Phase getPhase() { return phase; }
 
+    public Map<String, Integer> getMinedCounts() { return Collections.unmodifiableMap(minedCounts); }
+
     public void start(Direction facing) {
+        DisplayPrefs prefs = VToolsMod.getPrefs();
         this.mainDir = facing;
         this.corridorStep = 0;
         this.branchProgress = 0;
-        this.phase = Phase.DIGGING_CORRIDOR;
+        this.targetY = MaterialIndex.optimalY(prefs);
         this.oreQueue.clear();
         this.sealQueue.clear();
+        this.minedCounts.clear();
         this.breakTarget = null;
         this.isBreaking = false;
-        this.waitTicks = randomDelay(3, 8);
+        this.cameraLocked = false;
+        this.waitTicks = randomDelay(5, 15);
         this.ticksSinceAction = 0;
-        this.lastActionTime = System.currentTimeMillis();
+
+        MinecraftClient client = MinecraftClient.getInstance();
+        if (client.player != null) {
+            int currentY = client.player.getBlockPos().getY();
+            this.corridorOrigin = client.player.getBlockPos();
+            this.phase = (currentY > targetY + 2) ? Phase.DESCENDING : Phase.DIGGING_CORRIDOR;
+        } else {
+            this.phase = Phase.DIGGING_CORRIDOR;
+        }
     }
 
     public void stop() {
@@ -89,11 +119,10 @@ public final class SampleCollector {
         cancelBreaking();
         oreQueue.clear();
         sealQueue.clear();
+        queuedOreTypes.clear();
+        cameraLocked = false;
     }
 
-    /**
-     * Stop mining and disconnect from server if auto-leave is enabled.
-     */
     private void stopAndLeave(MinecraftClient client) {
         stop();
         DisplayPrefs prefs = VToolsMod.getPrefs();
@@ -105,7 +134,7 @@ public final class SampleCollector {
     }
 
     /**
-     * Called every client tick from SurveyTickMixin.
+     * Called every client tick.
      */
     public void tick() {
         MinecraftClient client = MinecraftClient.getInstance();
@@ -122,13 +151,24 @@ public final class SampleCollector {
         ClientPlayerEntity player = client.player;
         ClientWorld world = client.world;
 
-        // Safety: check for nearby players
+        // Safety: check for nearby players -> disconnect
         if (SessionGuard.checkAndDisconnect(client, prefs.getSurveyRadius())) {
             stop();
             return;
         }
 
-        // Human-like wait between actions
+        // Check if all ore goals are met
+        if (allGoalsMet(prefs)) {
+            stopAndLeave(client);
+            return;
+        }
+
+        // Smooth camera update (always runs, gradually moves head)
+        if (cameraLocked) {
+            smoothLook(player);
+        }
+
+        // Human-like wait
         if (waitTicks > 0) {
             waitTicks--;
             return;
@@ -136,39 +176,88 @@ public final class SampleCollector {
 
         ticksSinceAction++;
 
-        // Random micro-pauses to simulate human behavior
-        if (ticksSinceAction > randomDelay(40, 120)) {
-            waitTicks = randomDelay(5, 20);
+        // Random micro-pause every 30-80 ticks (human behavior)
+        if (ticksSinceAction > randomDelay(30, 80)) {
+            waitTicks = randomDelay(3, 12);
             ticksSinceAction = 0;
-            addHeadJitter(player);
+            addSubtleHeadDrift(player);
             return;
         }
 
-        // Tool management
+        // Tool swap phase
         if (phase == Phase.SWAPPING_TOOL) {
             if (swapCooldown > 0) { swapCooldown--; return; }
             if (SlotHelper.pullPickaxeFromInventory(player)) {
                 swapCooldown = randomDelay(4, 10);
-                waitTicks = randomDelay(2, 6);
+                waitTicks = randomDelay(3, 8);
                 phase = Phase.DIGGING_CORRIDOR;
             } else {
-                // No pickaxe anywhere -- done
                 stopAndLeave(client);
             }
             return;
         }
 
-        // Check pickaxe before any breaking
+        // Ensure pickaxe before any breaking (except lava sealing)
         if (phase != Phase.SEALING_LAVA) {
-            if (!ensurePickaxe(player, world)) return;
+            if (!ensurePickaxe(player)) return;
         }
 
         switch (phase) {
+            case DESCENDING -> tickDescend(client, player, world);
             case DIGGING_CORRIDOR -> tickCorridor(client, player, world, prefs);
             case DIGGING_BRANCH_LEFT, DIGGING_BRANCH_RIGHT -> tickBranch(client, player, world, prefs);
-            case MINING_ORE -> tickOre(client, player, world);
+            case MINING_ORE -> tickOre(client, player, world, prefs);
             case SEALING_LAVA -> tickSeal(client, player, world);
+            case RETURNING_TO_CORRIDOR -> tickReturnToCorridor(client, player, world, prefs);
             default -> {}
+        }
+    }
+
+    // --- Descending to target Y ---
+
+    private void tickDescend(MinecraftClient client, ClientPlayerEntity player, ClientWorld world) {
+        int currentY = player.getBlockPos().getY();
+
+        if (currentY <= targetY + 2) {
+            corridorOrigin = player.getBlockPos();
+            phase = Phase.DIGGING_CORRIDOR;
+            waitTicks = randomDelay(3, 8);
+            return;
+        }
+
+        // Dig staircase down: break block at feet-1 ahead, then feet ahead
+        BlockPos feet = player.getBlockPos();
+        BlockPos below = feet.down().offset(mainDir);
+        BlockPos belowHead = feet.offset(mainDir);
+
+        // Check lava below before descending
+        if (MaterialIndex.hasAdjacentLava(world, below) || MaterialIndex.hasAdjacentLava(world, belowHead)) {
+            List<BlockPos> exposures = MaterialIndex.findLavaExposures(world, below, 1);
+            if (!exposures.isEmpty()) {
+                sealQueue.addAll(exposures);
+                phase = Phase.SEALING_LAVA;
+                return;
+            }
+            // Lava detected but can't seal -- stop safely
+            stop();
+            return;
+        }
+
+        // Break blocks for staircase
+        BlockPos target = null;
+        if (MaterialIndex.isBreakable(world.getBlockState(below))) {
+            target = below;
+        } else if (MaterialIndex.isBreakable(world.getBlockState(belowHead))) {
+            target = belowHead;
+        }
+
+        if (target != null) {
+            setLookTarget(player, target);
+            breakBlock(client, player, target);
+        } else {
+            // Clear -- move down+forward
+            nudgeToward(player, Vec3d.ofCenter(below));
+            waitTicks = randomDelay(2, 5);
         }
     }
 
@@ -176,9 +265,25 @@ public final class SampleCollector {
 
     private void tickCorridor(MinecraftClient client, ClientPlayerEntity player, ClientWorld world, DisplayPrefs prefs) {
         BlockPos feet = player.getBlockPos();
+
+        // First: check for exposed ores visible in the tunnel walls
+        Set<Block> targets = MaterialIndex.buildTargetSet(prefs);
+        if (!targets.isEmpty() && oreQueue.isEmpty()) {
+            List<BlockPos> visible = MaterialIndex.scanExposedTargets(world, player, targets, prefs);
+            for (BlockPos ore : visible) {
+                String cat = MaterialIndex.oreCategory(world.getBlockState(ore).getBlock());
+                queueOre(ore, cat);
+            }
+            if (!oreQueue.isEmpty()) {
+                phase = Phase.MINING_ORE;
+                return;
+            }
+        }
+
+        // Dig the corridor: 2 blocks ahead (feet + head level)
         List<BlockPos> toBreak = GridLayout.corridorSegment(feet, mainDir);
 
-        // Check for lava ahead before breaking
+        // Lava safety check on blocks ahead
         for (BlockPos pos : toBreak) {
             if (MaterialIndex.hasAdjacentLava(world, pos)) {
                 List<BlockPos> exposures = MaterialIndex.findLavaExposures(world, pos, 2);
@@ -190,36 +295,22 @@ public final class SampleCollector {
             }
         }
 
-        // Break blocks in front
+        // Break first solid block ahead
         BlockPos target = findFirstSolid(world, toBreak);
         if (target != null) {
-            lookAt(player, target);
-            breakBlock(client, player, target, world);
+            setLookTarget(player, target);
+            breakBlock(client, player, target);
             return;
         }
 
-        // Corridor clear — move forward
-        moveForward(player, mainDir);
+        // Corridor clear -- walk forward
+        nudgeToward(player, Vec3d.ofCenter(feet.offset(mainDir)));
         corridorStep++;
-        waitTicks = randomDelay(1, 4);
+        waitTicks = randomDelay(2, 5);
 
-        // Scan for ores around current position
-        Set<Block> targets = MaterialIndex.buildTargetSet(prefs);
-        if (!targets.isEmpty()) {
-            List<BlockPos> ores = MaterialIndex.scanForTargets(world, feet, 4, targets);
-            for (BlockPos ore : ores) {
-                if (!oreQueue.contains(ore)) oreQueue.add(ore);
-            }
-        }
-
-        // Mine any found ores
-        if (!oreQueue.isEmpty()) {
-            phase = Phase.MINING_ORE;
-            return;
-        }
-
-        // Check if we should branch
+        // Branch every N steps
         if (GridLayout.isBranchStep(corridorStep)) {
+            savedCorridorPos = player.getBlockPos();
             branchProgress = 0;
             currentBranchDir = GridLayout.leftOf(mainDir);
             phase = Phase.DIGGING_BRANCH_LEFT;
@@ -230,6 +321,21 @@ public final class SampleCollector {
 
     private void tickBranch(MinecraftClient client, ClientPlayerEntity player, ClientWorld world, DisplayPrefs prefs) {
         BlockPos feet = player.getBlockPos();
+
+        // Check for exposed ores
+        Set<Block> targets = MaterialIndex.buildTargetSet(prefs);
+        if (!targets.isEmpty() && oreQueue.isEmpty()) {
+            List<BlockPos> visible = MaterialIndex.scanExposedTargets(world, player, targets, prefs);
+            for (BlockPos ore : visible) {
+                String cat = MaterialIndex.oreCategory(world.getBlockState(ore).getBlock());
+                queueOre(ore, cat);
+            }
+            if (!oreQueue.isEmpty()) {
+                phase = Phase.MINING_ORE;
+                return;
+            }
+        }
+
         List<BlockPos> toBreak = GridLayout.corridorSegment(feet, currentBranchDir);
 
         // Lava check
@@ -246,47 +352,72 @@ public final class SampleCollector {
 
         BlockPos target = findFirstSolid(world, toBreak);
         if (target != null) {
-            lookAt(player, target);
-            breakBlock(client, player, target, world);
+            setLookTarget(player, target);
+            breakBlock(client, player, target);
             return;
         }
 
-        moveForward(player, currentBranchDir);
+        nudgeToward(player, Vec3d.ofCenter(feet.offset(currentBranchDir)));
         branchProgress++;
-        waitTicks = randomDelay(1, 4);
-
-        // Scan for ores
-        Set<Block> targets = MaterialIndex.buildTargetSet(prefs);
-        if (!targets.isEmpty()) {
-            List<BlockPos> ores = MaterialIndex.scanForTargets(world, feet, 4, targets);
-            for (BlockPos ore : ores) {
-                if (!oreQueue.contains(ore)) oreQueue.add(ore);
-            }
-        }
-
-        if (!oreQueue.isEmpty()) {
-            phase = Phase.MINING_ORE;
-            return;
-        }
+        waitTicks = randomDelay(2, 5);
 
         if (branchProgress >= GridLayout.getBranchLength()) {
             if (phase == Phase.DIGGING_BRANCH_LEFT) {
-                // Walk back to corridor, then do right branch
+                // Return to corridor, then go right
                 branchProgress = 0;
                 currentBranchDir = GridLayout.rightOf(mainDir);
-                phase = Phase.DIGGING_BRANCH_RIGHT;
+                phase = Phase.RETURNING_TO_CORRIDOR;
                 waitTicks = randomDelay(5, 15);
             } else {
-                // Done with both branches, back to corridor
-                phase = Phase.DIGGING_CORRIDOR;
+                phase = Phase.RETURNING_TO_CORRIDOR;
                 waitTicks = randomDelay(3, 10);
             }
         }
     }
 
-    // --- Ore mining ---
+    // --- Return to corridor after branch ---
 
-    private void tickOre(MinecraftClient client, ClientPlayerEntity player, ClientWorld world) {
+    private void tickReturnToCorridor(MinecraftClient client, ClientPlayerEntity player, ClientWorld world, DisplayPrefs prefs) {
+        if (savedCorridorPos == null) {
+            phase = Phase.DIGGING_CORRIDOR;
+            return;
+        }
+
+        double dist = player.getPos().squaredDistanceTo(Vec3d.ofCenter(savedCorridorPos));
+        if (dist < 2.0) {
+            if (currentBranchDir == GridLayout.rightOf(mainDir)) {
+                // Already did right branch, back to corridor
+                phase = Phase.DIGGING_CORRIDOR;
+            } else {
+                // Switch to right branch
+                currentBranchDir = GridLayout.rightOf(mainDir);
+                branchProgress = 0;
+                phase = Phase.DIGGING_BRANCH_RIGHT;
+            }
+            waitTicks = randomDelay(3, 8);
+            return;
+        }
+
+        // Walk back toward saved corridor position
+        nudgeToward(player, Vec3d.ofCenter(savedCorridorPos));
+        setLookTarget(player, savedCorridorPos);
+        waitTicks = randomDelay(1, 3);
+    }
+
+    // --- Ore mining (only exposed, visible ores) ---
+
+    private void tickOre(MinecraftClient client, ClientPlayerEntity player, ClientWorld world, DisplayPrefs prefs) {
+        // Remove already-mined or now-hidden ores
+        while (!oreQueue.isEmpty()) {
+            BlockPos peek = oreQueue.peek();
+            BlockState state = world.getBlockState(peek);
+            if (state.isAir() || !MaterialIndex.hasExposedFace(world, peek)) {
+                oreQueue.poll();
+                continue;
+            }
+            break;
+        }
+
         if (oreQueue.isEmpty()) {
             phase = Phase.DIGGING_CORRIDOR;
             waitTicks = randomDelay(2, 6);
@@ -294,28 +425,34 @@ public final class SampleCollector {
         }
 
         BlockPos orePos = oreQueue.peek();
-        BlockState state = world.getBlockState(orePos);
-        if (state.isAir()) {
+
+        // Double-check: within reach?
+        double dist = player.getEyePos().squaredDistanceTo(Vec3d.ofCenter(orePos));
+        if (dist > 4.5 * 4.5) {
+            // Too far -- skip it, a real player wouldn't reach
             oreQueue.poll();
             return;
         }
 
-        // Check lava around ore
+        // Lava safety: skip ore if lava nearby
         if (MaterialIndex.hasAdjacentLava(world, orePos)) {
-            List<BlockPos> exposures = MaterialIndex.findLavaExposures(world, orePos, 1);
-            if (!exposures.isEmpty()) {
-                sealQueue.addAll(exposures);
-                phase = Phase.SEALING_LAVA;
-                return;
-            }
-        }
-
-        lookAt(player, orePos);
-        breakBlock(client, player, orePos, world);
-
-        if (world.getBlockState(orePos).isAir()) {
             oreQueue.poll();
             waitTicks = randomDelay(1, 3);
+            return;
+        }
+
+        setLookTarget(player, orePos);
+        breakBlock(client, player, orePos);
+
+        // Check if it just broke
+        if (world.getBlockState(orePos).isAir()) {
+            countMinedOre(orePos);
+            oreQueue.poll();
+            waitTicks = randomDelay(2, 5);
+
+            if (allGoalsMet(prefs)) {
+                stopAndLeave(client);
+            }
         }
     }
 
@@ -324,7 +461,7 @@ public final class SampleCollector {
     private void tickSeal(MinecraftClient client, ClientPlayerEntity player, ClientWorld world) {
         if (sealQueue.isEmpty()) {
             phase = Phase.DIGGING_CORRIDOR;
-            waitTicks = randomDelay(2, 5);
+            waitTicks = randomDelay(3, 8);
             return;
         }
 
@@ -334,51 +471,115 @@ public final class SampleCollector {
             return;
         }
 
+        // Within reach?
+        double dist = player.getEyePos().squaredDistanceTo(Vec3d.ofCenter(sealPos));
+        if (dist > 4.5 * 4.5) {
+            sealQueue.poll();
+            return;
+        }
+
         if (!SlotHelper.selectSealingBlock(player)) {
-            // No blocks to seal with -- skip and continue cautiously
             sealQueue.clear();
             phase = Phase.DIGGING_CORRIDOR;
             return;
         }
 
-        lookAt(player, sealPos);
+        setLookTarget(player, sealPos);
         placeBlock(client, player, sealPos);
         sealQueue.poll();
-        waitTicks = randomDelay(2, 5);
+        waitTicks = randomDelay(3, 7);
+    }
+
+    // --- Goal tracking ---
+
+    private final Map<BlockPos, String> queuedOreTypes = new HashMap<>();
+
+    /**
+     * Record ore type when adding to queue, and count when mined.
+     */
+    public void queueOre(BlockPos pos, String category) {
+        if (!oreQueue.contains(pos)) {
+            oreQueue.add(pos);
+            queuedOreTypes.put(pos, category);
+        }
+    }
+
+    private void countMinedOre(BlockPos pos) {
+        String cat = queuedOreTypes.remove(pos);
+        if (cat != null) {
+            minedCounts.merge(cat, 1, Integer::sum);
+        }
+    }
+
+    private boolean allGoalsMet(DisplayPrefs prefs) {
+        // 0 means unlimited -- that ore has no goal
+        if (prefs.isOreDiamond() && prefs.getCntDiamond() > 0) {
+            if (minedCounts.getOrDefault("diamond", 0) < prefs.getCntDiamond()) return false;
+        }
+        if (prefs.isOreGold() && prefs.getCntGold() > 0) {
+            if (minedCounts.getOrDefault("gold", 0) < prefs.getCntGold()) return false;
+        }
+        if (prefs.isOreIron() && prefs.getCntIron() > 0) {
+            if (minedCounts.getOrDefault("iron", 0) < prefs.getCntIron()) return false;
+        }
+        if (prefs.isOreCopper() && prefs.getCntCopper() > 0) {
+            if (minedCounts.getOrDefault("copper", 0) < prefs.getCntCopper()) return false;
+        }
+        if (prefs.isOreRedstone() && prefs.getCntRedstone() > 0) {
+            if (minedCounts.getOrDefault("redstone", 0) < prefs.getCntRedstone()) return false;
+        }
+        if (prefs.isOreLapis() && prefs.getCntLapis() > 0) {
+            if (minedCounts.getOrDefault("lapis", 0) < prefs.getCntLapis()) return false;
+        }
+        if (prefs.isOreEmerald() && prefs.getCntEmerald() > 0) {
+            if (minedCounts.getOrDefault("emerald", 0) < prefs.getCntEmerald()) return false;
+        }
+        if (prefs.isOreCoal() && prefs.getCntCoal() > 0) {
+            if (minedCounts.getOrDefault("coal", 0) < prefs.getCntCoal()) return false;
+        }
+
+        // All enabled ores with count>0 have met their goals
+        // If no ore has count>0 set, goals are never "met" (mine forever)
+        boolean anyGoalSet = false;
+        if (prefs.isOreDiamond() && prefs.getCntDiamond() > 0) anyGoalSet = true;
+        if (prefs.isOreGold() && prefs.getCntGold() > 0) anyGoalSet = true;
+        if (prefs.isOreIron() && prefs.getCntIron() > 0) anyGoalSet = true;
+        if (prefs.isOreCopper() && prefs.getCntCopper() > 0) anyGoalSet = true;
+        if (prefs.isOreRedstone() && prefs.getCntRedstone() > 0) anyGoalSet = true;
+        if (prefs.isOreLapis() && prefs.getCntLapis() > 0) anyGoalSet = true;
+        if (prefs.isOreEmerald() && prefs.getCntEmerald() > 0) anyGoalSet = true;
+        if (prefs.isOreCoal() && prefs.getCntCoal() > 0) anyGoalSet = true;
+
+        return anyGoalSet;
     }
 
     // --- Tool management ---
 
-    private boolean ensurePickaxe(ClientPlayerEntity player, ClientWorld world) {
+    private boolean ensurePickaxe(ClientPlayerEntity player) {
         if (SlotHelper.isHoldingUsablePickaxe(player)) return true;
 
         BlockState stoneState = net.minecraft.block.Blocks.STONE.getDefaultState();
         if (SlotHelper.selectBestPickaxe(player, stoneState)) {
-            waitTicks = randomDelay(2, 5);
+            waitTicks = randomDelay(3, 7);
             return true;
         }
 
-        // No pickaxe in hotbar, try inventory
         phase = Phase.SWAPPING_TOOL;
-        swapCooldown = randomDelay(5, 15);
+        swapCooldown = randomDelay(8, 20);
         return false;
     }
 
     // --- Block interaction ---
 
-    private void breakBlock(MinecraftClient client, ClientPlayerEntity player, BlockPos pos, ClientWorld world) {
+    private void breakBlock(MinecraftClient client, ClientPlayerEntity player, BlockPos pos) {
         if (breakTarget != null && breakTarget.equals(pos) && isBreaking) {
-            // Continue breaking
             client.interactionManager.updateBlockBreakingProgress(pos, getBlockFace(player, pos));
-            breakTicks++;
             return;
         }
 
-        // Start new break
         cancelBreaking();
         breakTarget = pos;
         isBreaking = true;
-        breakTicks = 0;
         client.interactionManager.attackBlock(pos, getBlockFace(player, pos));
     }
 
@@ -401,38 +602,56 @@ public final class SampleCollector {
         client.interactionManager.interactBlock(player, Hand.MAIN_HAND, hit);
     }
 
-    // --- Movement & look ---
+    // --- Camera: smooth, human-like ---
 
-    private void moveForward(ClientPlayerEntity player, Direction dir) {
-        Vec3d dirVec = Vec3d.of(dir.getVector());
-        // Set motion towards direction with slight randomization
-        double speed = 0.15 + ThreadLocalRandom.current().nextDouble() * 0.05;
-        player.setVelocity(dirVec.x * speed, player.getVelocity().y, dirVec.z * speed);
-    }
-
-    private void lookAt(ClientPlayerEntity player, BlockPos target) {
+    private void setLookTarget(ClientPlayerEntity player, BlockPos target) {
         Vec3d eyes = player.getEyePos();
         Vec3d targetCenter = Vec3d.ofCenter(target);
         double dx = targetCenter.x - eyes.x;
         double dy = targetCenter.y - eyes.y;
         double dz = targetCenter.z - eyes.z;
         double dist = Math.sqrt(dx * dx + dz * dz);
-        float yaw = (float)(Math.toDegrees(Math.atan2(-dx, dz)));
-        float pitch = (float)(Math.toDegrees(-Math.atan2(dy, dist)));
 
-        // Add human-like jitter
-        yaw += (ThreadLocalRandom.current().nextFloat() - 0.5f) * 1.5f;
-        pitch += (ThreadLocalRandom.current().nextFloat() - 0.5f) * 0.8f;
+        targetYaw = (float)(Math.toDegrees(Math.atan2(-dx, dz)));
+        targetPitch = (float)(Math.toDegrees(-Math.atan2(dy, dist)));
 
-        // Smooth interpolation (don't snap instantly)
-        float lerpFactor = 0.4f + ThreadLocalRandom.current().nextFloat() * 0.3f;
-        player.setYaw(lerpAngle(player.getYaw(), yaw, lerpFactor));
-        player.setPitch(lerp(player.getPitch(), pitch, lerpFactor));
+        // Subtle jitter so it doesn't look robotic
+        targetYaw += (ThreadLocalRandom.current().nextFloat() - 0.5f) * 0.8f;
+        targetPitch += (ThreadLocalRandom.current().nextFloat() - 0.5f) * 0.5f;
+
+        cameraLocked = true;
     }
 
-    private void addHeadJitter(ClientPlayerEntity player) {
-        player.setYaw(player.getYaw() + (ThreadLocalRandom.current().nextFloat() - 0.5f) * 3f);
-        player.setPitch(player.getPitch() + (ThreadLocalRandom.current().nextFloat() - 0.5f) * 2f);
+    private void smoothLook(ClientPlayerEntity player) {
+        float lf = CAM_LERP + ThreadLocalRandom.current().nextFloat() * CAM_LERP_JITTER;
+        player.setYaw(lerpAngle(player.getYaw(), targetYaw, lf));
+        player.setPitch(lerp(player.getPitch(), targetPitch, lf));
+
+        // Unlock when close enough
+        float yawDiff = Math.abs(wrapAngle(player.getYaw() - targetYaw));
+        float pitchDiff = Math.abs(player.getPitch() - targetPitch);
+        if (yawDiff < 1.5f && pitchDiff < 1.0f) {
+            cameraLocked = false;
+        }
+    }
+
+    private void addSubtleHeadDrift(ClientPlayerEntity player) {
+        // Very small random drift, like a person glancing around
+        player.setYaw(player.getYaw() + (ThreadLocalRandom.current().nextFloat() - 0.5f) * 1.5f);
+        player.setPitch(player.getPitch() + (ThreadLocalRandom.current().nextFloat() - 0.5f) * 0.8f);
+    }
+
+    // --- Movement: gentle nudge, like walking ---
+
+    private void nudgeToward(ClientPlayerEntity player, Vec3d target) {
+        Vec3d pos = player.getPos();
+        Vec3d diff = target.subtract(pos);
+        double len = diff.horizontalLength();
+        if (len < 0.1) return;
+
+        Vec3d norm = new Vec3d(diff.x / len, 0, diff.z / len);
+        double speed = 0.12 + ThreadLocalRandom.current().nextDouble() * 0.04;
+        player.setVelocity(norm.x * speed, player.getVelocity().y, norm.z * speed);
     }
 
     // --- Utility ---
@@ -467,9 +686,14 @@ public final class SampleCollector {
     }
 
     private static float lerpAngle(float a, float b, float t) {
-        float diff = b - a;
-        while (diff > 180) diff -= 360;
-        while (diff < -180) diff += 360;
+        float diff = wrapAngle(b - a);
         return a + diff * t;
+    }
+
+    private static float wrapAngle(float angle) {
+        angle %= 360f;
+        if (angle > 180f) angle -= 360f;
+        if (angle < -180f) angle += 360f;
+        return angle;
     }
 }

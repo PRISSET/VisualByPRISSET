@@ -89,13 +89,21 @@ public class PrefsScreen extends Screen {
         }));
         rows.add(new Slider("\u0420\u0430\u0434\u0438\u0443\u0441", 16, 64, prefs.getSurveyRadius(), v -> prefs.setSurveyRadius(v.intValue())));
         rows.add(new Toggle("\u0410\u043b\u043c\u0430\u0437\u044b", prefs::isOreDiamond, v -> prefs.setOreDiamond(v)));
+        rows.add(new Slider("\u041a\u043e\u043b-\u0432\u043e", 0, 999, prefs.getCntDiamond(), v -> prefs.setCntDiamond(v.intValue())));
         rows.add(new Toggle("\u0417\u043e\u043b\u043e\u0442\u043e", prefs::isOreGold, v -> prefs.setOreGold(v)));
+        rows.add(new Slider("\u041a\u043e\u043b-\u0432\u043e", 0, 999, prefs.getCntGold(), v -> prefs.setCntGold(v.intValue())));
         rows.add(new Toggle("\u0416\u0435\u043b\u0435\u0437\u043e", prefs::isOreIron, v -> prefs.setOreIron(v)));
+        rows.add(new Slider("\u041a\u043e\u043b-\u0432\u043e", 0, 999, prefs.getCntIron(), v -> prefs.setCntIron(v.intValue())));
         rows.add(new Toggle("\u041c\u0435\u0434\u044c", prefs::isOreCopper, v -> prefs.setOreCopper(v)));
+        rows.add(new Slider("\u041a\u043e\u043b-\u0432\u043e", 0, 999, prefs.getCntCopper(), v -> prefs.setCntCopper(v.intValue())));
         rows.add(new Toggle("\u0420\u0435\u0434\u0441\u0442\u043e\u0443\u043d", prefs::isOreRedstone, v -> prefs.setOreRedstone(v)));
+        rows.add(new Slider("\u041a\u043e\u043b-\u0432\u043e", 0, 999, prefs.getCntRedstone(), v -> prefs.setCntRedstone(v.intValue())));
         rows.add(new Toggle("\u041b\u0430\u043f\u0438\u0441", prefs::isOreLapis, v -> prefs.setOreLapis(v)));
+        rows.add(new Slider("\u041a\u043e\u043b-\u0432\u043e", 0, 999, prefs.getCntLapis(), v -> prefs.setCntLapis(v.intValue())));
         rows.add(new Toggle("\u0418\u0437\u0443\u043c\u0440\u0443\u0434", prefs::isOreEmerald, v -> prefs.setOreEmerald(v)));
+        rows.add(new Slider("\u041a\u043e\u043b-\u0432\u043e", 0, 999, prefs.getCntEmerald(), v -> prefs.setCntEmerald(v.intValue())));
         rows.add(new Toggle("\u0423\u0433\u043e\u043b\u044c", prefs::isOreCoal, v -> prefs.setOreCoal(v)));
+        rows.add(new Slider("\u041a\u043e\u043b-\u0432\u043e", 0, 999, prefs.getCntCoal(), v -> prefs.setCntCoal(v.intValue())));
         rows.add(new Toggle("\u0410\u0432\u0442\u043e-\u0432\u044b\u0445\u043e\u0434", prefs::isSurveyAutoLeave, v -> prefs.setSurveyAutoLeave(v)));
 
         totalH = PAD + 14;
@@ -326,13 +334,13 @@ public class PrefsScreen extends Screen {
         float frac() { return max <= min ? 0 : Math.max(0, Math.min(1, (val - min) / (max - min))); }
 
         int trackX() { return rx + SLIDER_LABEL_W; }
-        int trackW() { return rw - SLIDER_LABEL_W - 30; }
+        int trackW() { return rw - SLIDER_LABEL_W - 34; }
 
         void apply(int mx) {
             int tx = trackX(), tw = trackW();
             float f = Math.max(0, Math.min(1, (mx - tx) / (float) tw));
             val = min + f * (max - min);
-            if (max - min >= 1 && max <= 255) val = Math.round(val);
+            if (max - min >= 1 && max == Math.floor(max)) val = Math.round(val);
             cb.accept((double) val);
         }
 
@@ -356,7 +364,7 @@ public class PrefsScreen extends Screen {
             ctx.fill(kx - 2, ty - 3, kx + 2, ty + 5, 0xFFCCCCD0);
             ctx.fill(kx - 1, ty - 2, kx + 1, ty + 4, 0xFFFFFFFF);
 
-            String vs = (max <= 255 && max - min >= 1) ? "" + (int) val : String.format("%.1f", val);
+            String vs = (max == Math.floor(max) && max - min >= 1) ? "" + (int) val : String.format("%.1f", val);
             int vw = tr.getWidth(vs);
             ctx.drawTextWithShadow(tr, vs, rx + rw - vw, ry + 4, 0xFFB0B0B8);
         }

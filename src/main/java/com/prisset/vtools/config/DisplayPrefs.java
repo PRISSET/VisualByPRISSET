@@ -52,6 +52,14 @@ public class DisplayPrefs {
     private boolean oreEmerald;
     private boolean oreCoal;
     private boolean surveyAutoLeave;
+    private int cntDiamond;
+    private int cntGold;
+    private int cntIron;
+    private int cntCopper;
+    private int cntRedstone;
+    private int cntLapis;
+    private int cntEmerald;
+    private int cntCoal;
 
     private DisplayPrefs() {
         this.active = false;
@@ -90,6 +98,14 @@ public class DisplayPrefs {
         this.oreEmerald = false;
         this.oreCoal = false;
         this.surveyAutoLeave = false;
+        this.cntDiamond = 0;
+        this.cntGold = 0;
+        this.cntIron = 0;
+        this.cntCopper = 0;
+        this.cntRedstone = 0;
+        this.cntLapis = 0;
+        this.cntEmerald = 0;
+        this.cntCoal = 0;
     }
 
     public static DisplayPrefs defaults() {
@@ -136,6 +152,14 @@ public class DisplayPrefs {
         obj.addProperty("oe", oreEmerald);
         obj.addProperty("ok", oreCoal);
         obj.addProperty("sal", surveyAutoLeave);
+        obj.addProperty("cd", cntDiamond);
+        obj.addProperty("cg", cntGold);
+        obj.addProperty("ci", cntIron);
+        obj.addProperty("cc", cntCopper);
+        obj.addProperty("cr", cntRedstone);
+        obj.addProperty("cl", cntLapis);
+        obj.addProperty("ce", cntEmerald);
+        obj.addProperty("ck", cntCoal);
         return obj;
     }
 
@@ -177,6 +201,14 @@ public class DisplayPrefs {
         if (obj.has("oe")) prefs.oreEmerald = obj.get("oe").getAsBoolean();
         if (obj.has("ok")) prefs.oreCoal = obj.get("ok").getAsBoolean();
         if (obj.has("sal")) prefs.surveyAutoLeave = obj.get("sal").getAsBoolean();
+        if (obj.has("cd")) prefs.cntDiamond = obj.get("cd").getAsInt();
+        if (obj.has("cg")) prefs.cntGold = obj.get("cg").getAsInt();
+        if (obj.has("ci")) prefs.cntIron = obj.get("ci").getAsInt();
+        if (obj.has("cc")) prefs.cntCopper = obj.get("cc").getAsInt();
+        if (obj.has("cr")) prefs.cntRedstone = obj.get("cr").getAsInt();
+        if (obj.has("cl")) prefs.cntLapis = obj.get("cl").getAsInt();
+        if (obj.has("ce")) prefs.cntEmerald = obj.get("ce").getAsInt();
+        if (obj.has("ck")) prefs.cntCoal = obj.get("ck").getAsInt();
         return prefs;
     }
 
@@ -251,6 +283,14 @@ public class DisplayPrefs {
     public boolean isOreEmerald() { return oreEmerald; }
     public boolean isOreCoal() { return oreCoal; }
     public boolean isSurveyAutoLeave() { return surveyAutoLeave; }
+    public int getCntDiamond() { return cntDiamond; }
+    public int getCntGold() { return cntGold; }
+    public int getCntIron() { return cntIron; }
+    public int getCntCopper() { return cntCopper; }
+    public int getCntRedstone() { return cntRedstone; }
+    public int getCntLapis() { return cntLapis; }
+    public int getCntEmerald() { return cntEmerald; }
+    public int getCntCoal() { return cntCoal; }
     // --- Setters ---
 
     public void setActive(boolean val) { this.active = val; }
@@ -289,6 +329,14 @@ public class DisplayPrefs {
     public void setOreEmerald(boolean val) { this.oreEmerald = val; }
     public void setOreCoal(boolean val) { this.oreCoal = val; }
     public void setSurveyAutoLeave(boolean val) { this.surveyAutoLeave = val; }
+    public void setCntDiamond(int val) { this.cntDiamond = clamp(val, 0, 999); }
+    public void setCntGold(int val) { this.cntGold = clamp(val, 0, 999); }
+    public void setCntIron(int val) { this.cntIron = clamp(val, 0, 999); }
+    public void setCntCopper(int val) { this.cntCopper = clamp(val, 0, 999); }
+    public void setCntRedstone(int val) { this.cntRedstone = clamp(val, 0, 999); }
+    public void setCntLapis(int val) { this.cntLapis = clamp(val, 0, 999); }
+    public void setCntEmerald(int val) { this.cntEmerald = clamp(val, 0, 999); }
+    public void setCntCoal(int val) { this.cntCoal = clamp(val, 0, 999); }
     // --- Utility ---
 
     private static float clamp(float val, float min, float max) {
