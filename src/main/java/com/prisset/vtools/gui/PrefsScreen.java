@@ -1,5 +1,6 @@
 package com.prisset.vtools.gui;
 
+import com.prisset.vtools.blueprint.BlueprintPlacer;
 import com.prisset.vtools.blueprint.BlueprintScanner;
 import com.prisset.vtools.blueprint.BlueprintStorage;
 import com.prisset.vtools.blueprint.SchematicData;
@@ -90,6 +91,39 @@ public class PrefsScreen extends Screen {
             if (data == null) return;
             data.setName("build_" + System.currentTimeMillis() / 1000);
             BlueprintStorage.save(data);
+        }));
+
+        // -- PLACEMENT section --
+        rows.add(new Label("\u0420\u0410\u0417\u041c\u0415\u0429\u0415\u041d\u0418\u0415"));
+
+        // List saved blueprints as load buttons
+        java.util.List<String> saved = BlueprintStorage.listAll();
+        for (String bpName : saved) {
+            String display = bpName.length() > 20 ? bpName.substring(0, 20) + "..." : bpName;
+            rows.add(new Button("\u0417\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c: " + display, () -> {
+                BlueprintPlacer.instance().load(bpName);
+            }));
+        }
+
+        rows.add(new Toggle("\u041f\u0440\u0435\u0432\u044c\u044e",
+            () -> BlueprintPlacer.instance().isPreviewing(),
+            v -> BlueprintPlacer.instance().setPreviewing(v)));
+
+        rows.add(new Toggle("\u042f\u043a\u043e\u0440\u044c \u043f\u043e\u0434 \u043d\u043e\u0433\u0430\u043c\u0438",
+            () -> BlueprintPlacer.instance().hasAnchor(),
+            v -> {
+                MinecraftClient mc = MinecraftClient.getInstance();
+                if (mc.player != null && v) {
+                    BlueprintPlacer.instance().setAnchor(mc.player.getBlockPos());
+                }
+            }));
+
+        rows.add(new Button("\u041f\u043e\u0432\u0435\u0440\u043d\u0443\u0442\u044c 90\u00b0", () -> {
+            BlueprintPlacer.instance().rotateCW();
+        }));
+
+        rows.add(new Button("\u0421\u0431\u0440\u043e\u0441\u0438\u0442\u044c", () -> {
+            BlueprintPlacer.instance().unload();
         }));
 
         totalH = PAD + 14;
