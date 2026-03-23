@@ -27,30 +27,30 @@ public abstract class AttackIndicatorMixin {
         if (mc.player == null || mc.currentScreen != null) return;
 
         float progress = mc.player.getAttackCooldownProgress(0.5f);
-
-        // Don't render if cooldown is full and no target -- clean screen
-        if (progress >= 1.0f && mc.targetedEntity == null) return;
+        boolean hasTarget = mc.targetedEntity != null;
+        boolean ready = progress >= 1.0f;
 
         int cx = ctx.getScaledWindowWidth() / 2;
         int cy = ctx.getScaledWindowHeight() / 2;
 
-        // Bar dimensions: 11 wide, 1 tall, 2px below crosshair center
         int barW = 11;
         int barH = 1;
         int barX = cx - barW / 2;
         int barY = cy + 4;
 
-        // Background (dark)
+        // Background always visible
         ctx.fill(barX - 1, barY - 1, barX + barW + 1, barY + barH + 1, 0x80000000);
 
-        // Progress fill
         int fillW = (int) (progress * barW);
 
-        if (progress >= 1.0f) {
-            // Full damage ready: bright green bar
+        if (ready && hasTarget) {
+            // Full damage + target: green
             ctx.fill(barX, barY, barX + barW, barY + barH, 0xFF40FF40);
+        } else if (ready) {
+            // Full damage, no target: white
+            ctx.fill(barX, barY, barX + barW, barY + barH, 0xFFFFFFFF);
         } else {
-            // Charging: white bar with gray remainder
+            // Charging: white fill on gray
             ctx.fill(barX, barY, barX + barW, barY + barH, 0xFF333333);
             ctx.fill(barX, barY, barX + fillW, barY + barH, 0xFFFFFFFF);
         }
