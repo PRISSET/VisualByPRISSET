@@ -6,46 +6,38 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 
 /**
- * W-tap: sprint-reset for maximum knockback on every hit.
+ * Sprint-reset for maximum knockback on every hit.
  *
- * After each attack:
- *   1. Immediately stop moving (release W, kill sprint) so sprint resets
- *   2. Stay stopped for a few ticks
- *   3. Re-engage W + sprint so the next hit is a sprint-hit
+ * Minecraft gives extra knockback only on the FIRST hit while sprinting.
+ * To get max KB on every hit, we reset sprinting between attacks.
  *
- * This ensures Minecraft registers a NEW sprint for each hit,
- * giving full knockback bonus every time.
+ * We don't touch W key at all (player controls movement).
+ * We only manipulate sprint state:
+ *   1. On attack: force sprinting = true (hit gets KB bonus)
+ *   2. After attack: force sprinting = false for a few ticks (resets sprint)
+ *   3. Then force sprinting = true again (ready for next hit)
  */
 public final class WTapHandler {
 
-    // 0 = idle (not doing anything)
-    // 1 = STOP phase (W released, waiting)
-    // 2 = SPRINT phase (W pressed, sprinting toward target)
-    private static int phase = 0;
+    private static int phase = 0;  // 0=idle, 1=sprint-off, 2=sprint-on
     private static int ticks = 0;
-
-    // How long to hold W released after a hit (ticks)
-    private static final int STOP_TICKS = 2;
-    // How long to sprint before next hit (ticks) — enough to get sprint going
-    private static final int SPRINT_TICKS = 3;
+    private static final int OFF_TICKS = 1;  // how long sprint stays off
+    private static final int ON_TICKS = 2;   // how long to force sprint back on
 
     private WTapHandler() {}
 
-    /**
-     * Called RIGHT BEFORE the attack lands (from mixin on attackEntity HEAD).
-     * At this point we must be sprinting for knockback bonus.
-     */
+    /** Called from WTapMixin right before attackEntity executes */
     public static void onAttack() {
         DisplayPrefs prefs = VToolsMod.getPrefs();
         if (prefs == null || !prefs.isWTap()) return;
 
         MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.player == null || mc.options == null) return;
+        if (mc.player == null) return;
 
-        // Force sprint for THIS hit
+        // This hit must land while sprinting
         mc.player.setSprinting(true);
 
-        // After the hit, start the stop phase
+        // Start sprint-reset cycle
         phase = 1;
         ticks = 0;
     }
@@ -62,7 +54,7 @@ public final class WTapHandler {
 
         MinecraftClient mc = MinecraftClient.getInstance();
         ClientPlayerEntity player = mc.player;
-        if (player == null || mc.options == null) {
+        if (player == null) {
             phase = 0;
             return;
         }
@@ -71,27 +63,19 @@ public final class WTapHandler {
 
         switch (phase) {
             case 1 -> {
-                // STOP: release W, break sprint
-                mc.options.forwardKey.setPressed(false);
-                mc.options.sprintKey.setPressed(false);
+                // Kill sprint so Minecraft resets the "already sprinted" flag
                 player.setSprinting(false);
-
-                if (ticks >= STOP_TICKS) {
+                if (ticks >= OFF_TICKS) {
                     phase = 2;
                     ticks = 0;
                 }
             }
             case 2 -> {
-                // SPRINT: press W + sprint to re-enter sprint before next hit
-                mc.options.forwardKey.setPressed(true);
-                mc.options.sprintKey.setPressed(true);
+                // Re-engage sprint so the next hit gets knockback
                 player.setSprinting(true);
-
-                if (ticks >= SPRINT_TICKS) {
-                    // Done — keys back to whatever the player is actually pressing
+                if (ticks >= ON_TICKS) {
                     phase = 0;
                     ticks = 0;
-                    // Don't force keys anymore, let real input take over
                 }
             }
         }
