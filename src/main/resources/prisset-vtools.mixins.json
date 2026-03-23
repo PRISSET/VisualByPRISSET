@@ -8,7 +8,8 @@
     "InputTimingMixin",
     "ZoomMixin",
     "BobViewMixin",
-    "BlueprintClickMixin"
+    "BlueprintClickMixin",
+    "BuilderTickMixin"
   ],
   "injectors": {
     "defaultRequire": 1

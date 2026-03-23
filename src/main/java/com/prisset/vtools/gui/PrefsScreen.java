@@ -3,6 +3,7 @@ package com.prisset.vtools.gui;
 import com.prisset.vtools.blueprint.BlueprintPlacer;
 import com.prisset.vtools.blueprint.BlueprintScanner;
 import com.prisset.vtools.blueprint.BlueprintStorage;
+import com.prisset.vtools.blueprint.BuilderBot;
 import com.prisset.vtools.blueprint.SchematicData;
 import com.prisset.vtools.blueprint.SelectionManager;
 import com.prisset.vtools.config.DisplayPrefs;
@@ -124,6 +125,24 @@ public class PrefsScreen extends Screen {
 
         rows.add(new Button("\u0421\u0431\u0440\u043e\u0441\u0438\u0442\u044c", () -> {
             BlueprintPlacer.instance().unload();
+            BuilderBot.instance().stop();
+        }));
+
+        // -- BUILD section --
+        rows.add(new Label("\u0421\u0422\u0420\u041e\u0419\u041a\u0410"));
+        rows.add(new Button("\u0421\u0442\u0430\u0440\u0442", () -> {
+            BuilderBot.instance().start();
+        }));
+        rows.add(new Button("\u041f\u0430\u0443\u0437\u0430", () -> {
+            BuilderBot bot = BuilderBot.instance();
+            if (bot.getState() == BuilderBot.State.PAUSED) {
+                bot.resume();
+            } else {
+                bot.pause();
+            }
+        }));
+        rows.add(new Button("\u0421\u0442\u043e\u043f", () -> {
+            BuilderBot.instance().stop();
         }));
 
         totalH = PAD + 14;
