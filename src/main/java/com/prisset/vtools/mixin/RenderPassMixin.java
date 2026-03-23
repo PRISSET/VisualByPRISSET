@@ -1,6 +1,7 @@
 package com.prisset.vtools.mixin;
 
 import com.prisset.vtools.VToolsMod;
+import com.prisset.vtools.blueprint.SelectionRenderer;
 import com.prisset.vtools.config.DisplayPrefs;
 import com.prisset.vtools.render.OverlayPainter;
 import com.prisset.vtools.render.TrailRenderer;
@@ -33,10 +34,13 @@ public abstract class RenderPassMixin {
             CallbackInfo ci
     ) {
         DisplayPrefs prefs = VToolsMod.getPrefs();
-        if (prefs == null || !prefs.isActive()) return;
-
         MinecraftClient client = MinecraftClient.getInstance();
-        if (client.world == null) return;
+        if (client.world == null || prefs == null) return;
+
+        // Blueprint selection always renders (independent of overlay toggle)
+        SelectionRenderer.render(matrices, camera, tickDelta);
+
+        if (!prefs.isActive()) return;
 
         if (prefs.isDebugOnly()) {
             boolean debugActive = client.getEntityRenderDispatcher()

@@ -1,6 +1,11 @@
 package com.prisset.vtools.gui;
 
+import com.prisset.vtools.blueprint.BlueprintScanner;
+import com.prisset.vtools.blueprint.BlueprintStorage;
+import com.prisset.vtools.blueprint.SchematicData;
+import com.prisset.vtools.blueprint.SelectionManager;
 import com.prisset.vtools.config.DisplayPrefs;
+import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.font.TextRenderer;
@@ -71,7 +76,21 @@ public class PrefsScreen extends Screen {
         rows.add(new Slider("\u0417\u0435\u043b\u0451\u043d\u044b\u0439", 0, 255, prefs.getMenuG(), v -> prefs.setMenuG(v.intValue())));
         rows.add(new Slider("\u0421\u0438\u043d\u0438\u0439", 0, 255, prefs.getMenuB(), v -> prefs.setMenuB(v.intValue())));
 
-
+        // -- BLUEPRINT section --
+        rows.add(new Label("\u0427\u0415\u0420\u0422\u0401\u0416"));
+        rows.add(new Toggle("\u0420\u0435\u0436\u0438\u043c \u0432\u044b\u0434\u0435\u043b\u0435\u043d\u0438\u044f",
+            () -> SelectionManager.instance().isActive(),
+            v -> SelectionManager.instance().setActive(v)));
+        rows.add(new Button("\u0421\u043a\u0430\u043d\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0438 \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c", () -> {
+            MinecraftClient mc = MinecraftClient.getInstance();
+            if (mc.world == null) return;
+            SelectionManager sel = SelectionManager.instance();
+            if (!sel.isComplete()) return;
+            SchematicData data = BlueprintScanner.scan(mc.world);
+            if (data == null) return;
+            data.setName("build_" + System.currentTimeMillis() / 1000);
+            BlueprintStorage.save(data);
+        }));
 
         totalH = PAD + 14;
         for (Row r : rows) totalH += r instanceof Label ? LABEL_H : ROW_H;
@@ -338,5 +357,42 @@ public class PrefsScreen extends Screen {
 
         @Override void onClick(int mx) { apply(mx); }
         @Override void onDrag(int mx) { apply(mx); }
+    }
+
+    static class Button extends Row {
+        final String label;
+        final Runnable action;
+        boolean flash;
+        long flashTime;
+
+        Button(String l, Runnable a) { label = l; action = a; }
+
+        @Override
+        void render(DrawContext ctx, TextRenderer tr, int mx, int my, int nc) {
+            boolean hov = contains(mx, my);
+            long age = System.currentTimeMillis() - flashTime;
+            boolean showFlash = flash && age < 600;
+
+            int bg = hov ? rgba(nr(nc), ng(nc), nb(nc), 30) : 0xFF0E0E12;
+            if (showFlash) bg = rgba(40, 200, 60, 60);
+
+            ctx.fill(rx, ry + 1, rx + rw, ry + rh - 1, bg);
+            // Border
+            int bc = hov ? rgba(nr(nc), ng(nc), nb(nc), 120) : 0xFF2A2A30;
+            ctx.fill(rx, ry + 1, rx + rw, ry + 2, bc);
+            ctx.fill(rx, ry + rh - 2, rx + rw, ry + rh - 1, bc);
+
+            int textColor = showFlash ? 0xFF40FF40 : (hov ? 0xFFE0E0E8 : 0xFF808090);
+            String display = showFlash ? "\u0413\u043e\u0442\u043e\u0432\u043e!" : label;
+            int tw = tr.getWidth(display);
+            ctx.drawTextWithShadow(tr, display, rx + (rw - tw) / 2, ry + 4, textColor);
+        }
+
+        @Override
+        void onClick(int mx) {
+            action.run();
+            flash = true;
+            flashTime = System.currentTimeMillis();
+        }
     }
 }
