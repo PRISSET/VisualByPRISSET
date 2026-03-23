@@ -4,6 +4,7 @@ import com.prisset.vtools.blueprint.BlueprintPlacer;
 import com.prisset.vtools.blueprint.BlueprintScanner;
 import com.prisset.vtools.blueprint.BlueprintStorage;
 import com.prisset.vtools.blueprint.BuilderBot;
+import com.prisset.vtools.blueprint.BuildMaterialHud;
 import com.prisset.vtools.blueprint.SchematicData;
 import com.prisset.vtools.blueprint.SelectionManager;
 import com.prisset.vtools.config.DisplayPrefs;
@@ -97,27 +98,33 @@ public class PrefsScreen extends Screen {
         // -- PLACEMENT section --
         rows.add(new Label("\u0420\u0410\u0417\u041c\u0415\u0429\u0415\u041d\u0418\u0415"));
 
-        // List saved blueprints as load buttons
+        // List saved blueprints with load + delete buttons
         java.util.List<String> saved = BlueprintStorage.listAll();
         for (String bpName : saved) {
-            String display = bpName.length() > 20 ? bpName.substring(0, 20) + "..." : bpName;
-            rows.add(new Button("\u0417\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c: " + display, () -> {
+            String display = bpName.length() > 18 ? bpName.substring(0, 18) + ".." : bpName;
+            rows.add(new Button("\u0417\u0430\u0433\u0440.: " + display, () -> {
                 BlueprintPlacer.instance().load(bpName);
             }));
+            rows.add(new Button("\u0423\u0434\u0430\u043b\u0438\u0442\u044c: " + display, () -> {
+                BlueprintStorage.delete(bpName);
+                BlueprintPlacer placer = BlueprintPlacer.instance();
+                if (bpName.equals(placer.getLoadedName())) {
+                    placer.unload();
+                    BuilderBot.instance().stop();
+                }
+                // Refresh GUI
+                this.init();
+            }));
         }
+
+        // Cursor placement mode: ghost follows crosshair, LMB to confirm
+        rows.add(new Toggle("\u0420\u0430\u0437\u043c\u0435\u0441\u0442\u0438\u0442\u044c \u043a\u0443\u0440\u0441\u043e\u0440\u043e\u043c",
+            () -> BlueprintPlacer.instance().isPlacementMode(),
+            v -> BlueprintPlacer.instance().setPlacementMode(v)));
 
         rows.add(new Toggle("\u041f\u0440\u0435\u0432\u044c\u044e",
             () -> BlueprintPlacer.instance().isPreviewing(),
             v -> BlueprintPlacer.instance().setPreviewing(v)));
-
-        rows.add(new Toggle("\u042f\u043a\u043e\u0440\u044c \u043f\u043e\u0434 \u043d\u043e\u0433\u0430\u043c\u0438",
-            () -> BlueprintPlacer.instance().hasAnchor(),
-            v -> {
-                MinecraftClient mc = MinecraftClient.getInstance();
-                if (mc.player != null && v) {
-                    BlueprintPlacer.instance().setAnchor(mc.player.getBlockPos());
-                }
-            }));
 
         rows.add(new Button("\u041f\u043e\u0432\u0435\u0440\u043d\u0443\u0442\u044c 90\u00b0", () -> {
             BlueprintPlacer.instance().rotateCW();
@@ -126,10 +133,16 @@ public class PrefsScreen extends Screen {
         rows.add(new Button("\u0421\u0431\u0440\u043e\u0441\u0438\u0442\u044c", () -> {
             BlueprintPlacer.instance().unload();
             BuilderBot.instance().stop();
+            BuildMaterialHud.setVisible(false);
         }));
 
         // -- BUILD section --
         rows.add(new Label("\u0421\u0422\u0420\u041e\u0419\u041a\u0410"));
+
+        rows.add(new Toggle("\u041c\u0430\u0442\u0435\u0440\u0438\u0430\u043b\u044b HUD",
+            () -> BuildMaterialHud.isVisible(),
+            v -> BuildMaterialHud.setVisible(v)));
+
         rows.add(new Button("\u0421\u0442\u0430\u0440\u0442", () -> {
             BuilderBot.instance().start();
         }));

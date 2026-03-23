@@ -9,7 +9,8 @@
     "ZoomMixin",
     "BobViewMixin",
     "BlueprintClickMixin",
-    "BuilderTickMixin"
+    "BuilderTickMixin",
+    "MaterialHudMixin"
   ],
   "injectors": {
     "defaultRequire": 1

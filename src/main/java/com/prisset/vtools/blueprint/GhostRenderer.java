@@ -23,13 +23,16 @@ public final class GhostRenderer {
 
     public static void render(MatrixStack matrices, Camera camera, float tickDelta) {
         BlueprintPlacer placer = BlueprintPlacer.instance();
-        if (!placer.isLoaded() || !placer.isPreviewing() || !placer.hasAnchor()) return;
+        if (!placer.isLoaded() || !placer.isPreviewing()) return;
+
+        BlockPos effectiveAnchor = placer.getEffectiveAnchor();
+        if (effectiveAnchor == null) return;
 
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc.world == null) return;
 
         SchematicData schem = placer.getSchematic();
-        BlockPos anchor = placer.getAnchor();
+        BlockPos anchor = effectiveAnchor;
         Vec3d camPos = camera.getPos();
 
         VertexConsumerProvider.Immediate immediate =
@@ -43,7 +46,7 @@ public final class GhostRenderer {
         int sz = schem.getSizeZ();
 
         // Render bounding box (cyan, dim)
-        renderBoundingBox(matrices, lines, camPos, placer, pulse);
+        renderBoundingBox(matrices, lines, camPos, placer, anchor, pulse);
 
         // Render anchor marker (white bright)
         renderAnchorMarker(matrices, lines, camPos, anchor, pulse);
@@ -56,7 +59,7 @@ public final class GhostRenderer {
                 for (int x = 0; x < sx; x++) {
                     if (schem.isAir(x, y, z)) continue;
 
-                    BlockPos worldPos = placer.localToWorld(x, y, z);
+                    BlockPos worldPos = placer.localToWorld(x, y, z, anchor);
 
                     // Distance cull
                     double dx = worldPos.getX() + 0.5 - camPos.x;
@@ -99,8 +102,8 @@ public final class GhostRenderer {
     }
 
     private static void renderBoundingBox(MatrixStack matrices, VertexConsumer lines,
-                                           Vec3d camPos, BlueprintPlacer placer, float pulse) {
-        BlockPos anchor = placer.getAnchor();
+                                           Vec3d camPos, BlueprintPlacer placer,
+                                           BlockPos anchor, float pulse) {
         int wsx = placer.getWorldSizeX();
         int wsy = placer.getWorldSizeY();
         int wsz = placer.getWorldSizeZ();

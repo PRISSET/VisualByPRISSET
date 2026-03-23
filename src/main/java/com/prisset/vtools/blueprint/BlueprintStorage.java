@@ -91,6 +91,26 @@ public final class BlueprintStorage {
     }
 
     /**
+     * Delete a saved blueprint by name.
+     */
+    public static boolean delete(String name) {
+        Path dir = getDir();
+        Path file = dir.resolve(name + ".blueprint.json");
+        if (!Files.exists(file)) {
+            file = dir.resolve(name);
+            if (!Files.exists(file)) return false;
+        }
+        try {
+            Files.delete(file);
+            LOG.info("Deleted blueprint: {}", name);
+            return true;
+        } catch (IOException e) {
+            LOG.error("Failed to delete blueprint: {}", name, e);
+            return false;
+        }
+    }
+
+    /**
      * List all saved blueprint names (without extension).
      */
     public static List<String> listAll() {

@@ -13,9 +13,11 @@ public final class BlueprintPlacer {
     private static final BlueprintPlacer INSTANCE = new BlueprintPlacer();
 
     private SchematicData schematic;
-    private BlockPos anchor;       // world position of schematic origin
-    private int rotation;          // 0-3 (0=none, 1=90CW, 2=180, 3=270CW)
-    private boolean previewing;    // ghost render active
+    private BlockPos anchor;          // confirmed world position of schematic origin
+    private BlockPos previewAnchor;   // follows crosshair while placement mode is on
+    private int rotation;             // 0-3 (0=none, 1=90CW, 2=180, 3=270CW)
+    private boolean previewing;       // ghost render active
+    private boolean placementMode;    // cursor-follow mode (preview moves with crosshair)
     private String loadedName;
 
     private BlueprintPlacer() {}
@@ -30,7 +32,9 @@ public final class BlueprintPlacer {
         this.loadedName = name;
         this.rotation = 0;
         this.anchor = null;
+        this.previewAnchor = null;
         this.previewing = false;
+        this.placementMode = false;
         return true;
     }
 
@@ -38,8 +42,10 @@ public final class BlueprintPlacer {
         this.schematic = null;
         this.loadedName = null;
         this.anchor = null;
+        this.previewAnchor = null;
         this.rotation = 0;
         this.previewing = false;
+        this.placementMode = false;
     }
 
     public boolean isLoaded() { return schematic != null; }
@@ -51,6 +57,45 @@ public final class BlueprintPlacer {
     public void setAnchor(BlockPos pos) { this.anchor = pos.toImmutable(); }
     public BlockPos getAnchor() { return anchor; }
     public boolean hasAnchor() { return anchor != null; }
+
+    // -- Placement mode (cursor-follow) --
+
+    public boolean isPlacementMode() { return placementMode; }
+
+    public void setPlacementMode(boolean val) {
+        this.placementMode = val;
+        if (val && schematic != null) {
+            this.previewing = true;
+        }
+        if (!val) {
+            this.previewAnchor = null;
+        }
+    }
+
+    public void setPreviewAnchor(BlockPos pos) {
+        this.previewAnchor = pos != null ? pos.toImmutable() : null;
+    }
+
+    public BlockPos getPreviewAnchor() { return previewAnchor; }
+
+    /**
+     * Confirm placement at current preview position.
+     * Copies previewAnchor to anchor and exits placement mode.
+     */
+    public void confirmPlacement() {
+        if (previewAnchor != null) {
+            this.anchor = previewAnchor;
+            this.placementMode = false;
+        }
+    }
+
+    /**
+     * Returns the effective anchor for rendering: previewAnchor while placing, anchor when confirmed.
+     */
+    public BlockPos getEffectiveAnchor() {
+        if (placementMode && previewAnchor != null) return previewAnchor;
+        return anchor;
+    }
 
     // -- Rotation --
 
@@ -73,6 +118,13 @@ public final class BlueprintPlacer {
         return schematic != null && anchor != null;
     }
 
+    /**
+     * Ready for rendering (either confirmed anchor or live preview anchor).
+     */
+    public boolean isReadyToRender() {
+        return schematic != null && getEffectiveAnchor() != null;
+    }
+
     // -- Coordinate transformation --
 
     /**
@@ -80,7 +132,14 @@ public final class BlueprintPlacer {
      * applying rotation around Y axis and anchor offset.
      */
     public BlockPos localToWorld(int lx, int ly, int lz) {
-        if (anchor == null) return new BlockPos(lx, ly, lz);
+        return localToWorld(lx, ly, lz, anchor);
+    }
+
+    /**
+     * Transform using a specific anchor (used for preview rendering).
+     */
+    public BlockPos localToWorld(int lx, int ly, int lz, BlockPos anch) {
+        if (anch == null) return new BlockPos(lx, ly, lz);
 
         int sx = schematic.getSizeX();
         int sz = schematic.getSizeZ();
@@ -106,9 +165,9 @@ public final class BlueprintPlacer {
         }
 
         return new BlockPos(
-            anchor.getX() + wx,
-            anchor.getY() + ly,
-            anchor.getZ() + wz
+            anch.getX() + wx,
+            anch.getY() + ly,
+            anch.getZ() + wz
         );
     }
 

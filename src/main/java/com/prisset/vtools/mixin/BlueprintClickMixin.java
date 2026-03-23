@@ -1,5 +1,6 @@
 package com.prisset.vtools.mixin;
 
+import com.prisset.vtools.blueprint.BlueprintPlacer;
 import com.prisset.vtools.blueprint.SelectionManager;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
@@ -13,9 +14,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
- * Intercepts attack (LMB) and use (RMB) clicks to set blueprint selection points.
- * When blueprint selection mode is active, clicks set pos1/pos2 instead of
- * performing normal game actions.
+ * Intercepts attack (LMB) and use (RMB) clicks for blueprint features.
+ *
+ * Selection mode: LMB = pos1, RMB = pos2
+ * Placement mode: LMB = confirm schematic position at crosshair
  */
 @Mixin(MinecraftClient.class)
 public abstract class BlueprintClickMixin {
@@ -25,6 +27,17 @@ public abstract class BlueprintClickMixin {
 
     @Inject(method = "doAttack", at = @At("HEAD"), cancellable = true)
     private void vtools$blueprintAttack(CallbackInfoReturnable<Boolean> cir) {
+        // Placement mode: LMB confirms schematic position
+        BlueprintPlacer placer = BlueprintPlacer.instance();
+        if (placer.isPlacementMode() && placer.isLoaded()) {
+            if (crosshairTarget != null && crosshairTarget.getType() == HitResult.Type.BLOCK) {
+                placer.confirmPlacement();
+                cir.setReturnValue(false);
+                return;
+            }
+        }
+
+        // Selection mode: LMB = pos1
         SelectionManager sel = SelectionManager.instance();
         if (!sel.isActive()) return;
         if (crosshairTarget == null || crosshairTarget.getType() != HitResult.Type.BLOCK) return;
@@ -36,6 +49,14 @@ public abstract class BlueprintClickMixin {
 
     @Inject(method = "doItemUse", at = @At("HEAD"), cancellable = true)
     private void vtools$blueprintUse(CallbackInfo ci) {
+        // Block RMB during placement mode to prevent accidental block placement
+        BlueprintPlacer placer = BlueprintPlacer.instance();
+        if (placer.isPlacementMode() && placer.isLoaded()) {
+            ci.cancel();
+            return;
+        }
+
+        // Selection mode: RMB = pos2
         SelectionManager sel = SelectionManager.instance();
         if (!sel.isActive()) return;
         if (crosshairTarget == null || crosshairTarget.getType() != HitResult.Type.BLOCK) return;
