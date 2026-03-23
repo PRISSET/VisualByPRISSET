@@ -178,15 +178,7 @@ public final class BuilderBot {
             return;
         }
 
-        // Find a valid face to place against
-        Direction face = findBestPlaceFace(mc.world, player, target);
-        if (face == null) {
-            deferred.add(currentEntry);
-            blockIdx++;
-            return;
-        }
-
-        // Equip block
+        // Equip block first (needed before any placement attempt)
         String blockId = currentEntry.getBlockId();
         if (!InventoryHelper.isHolding(player, blockId)) {
             boolean found = InventoryHelper.equipBlock(player, blockId);
@@ -199,16 +191,24 @@ public final class BuilderBot {
             return;
         }
 
-        // Distance check
-        Vec3d faceHitPoint = getFaceHitPoint(target, face);
-        double dist = player.getEyePos().distanceTo(faceHitPoint);
-        if (dist > PLACE_REACH) {
+        // Distance check: if too far from target, walk first
+        double distToTarget = player.getEyePos().distanceTo(Vec3d.ofCenter(target));
+        if (distToTarget > PLACE_REACH) {
             walkTicks = 0;
             state = State.WALKING;
-        } else {
-            aimTicks = 0;
-            state = State.AIM;
+            return;
         }
+
+        // Close enough — find a valid face to place against
+        Direction face = findBestPlaceFace(mc.world, player, target);
+        if (face == null) {
+            deferred.add(currentEntry);
+            blockIdx++;
+            return;
+        }
+
+        aimTicks = 0;
+        state = State.AIM;
     }
 
     private BuildQueue.PlaceEntry pickNext(MinecraftClient mc) {
@@ -405,10 +405,6 @@ public final class BuilderBot {
 
             // Neighbor must be solid
             if (world.getBlockState(neighbor).isAir()) continue;
-
-            // Don't click on block player is standing on if it means placing INTO player
-            // (this handles the "placing under self" issue)
-            if (isPlayerOccupying(player, target)) continue;
 
             // Check reach to the face
             Vec3d facePoint = getFaceHitPoint(target, dir);
