@@ -16,7 +16,8 @@ public final class SelectionManager {
 
     private BlockPos pos1;
     private BlockPos pos2;
-    private boolean active; // blueprint selection mode on/off
+    private boolean active;
+    private double selectRange = 10.0; // scroll-adjustable selection range for air picks
 
     private SelectionManager() {}
     public static SelectionManager instance() { return INSTANCE; }
@@ -25,6 +26,12 @@ public final class SelectionManager {
     public void setActive(boolean active) {
         this.active = active;
         if (!active) reset();
+    }
+
+    public double getSelectRange() { return selectRange; }
+
+    public void adjustRange(double delta) {
+        selectRange = Math.max(2.0, Math.min(64.0, selectRange + delta));
     }
 
     public void setPos1(BlockPos pos) { this.pos1 = pos.toImmutable(); }

@@ -9,6 +9,7 @@
     "ZoomMixin",
     "BobViewMixin",
     "BlueprintClickMixin",
+    "ScrollInterceptMixin",
     "BuilderTickMixin",
     "MaterialHudMixin"
   ],

@@ -28,7 +28,7 @@ public abstract class BlueprintClickMixin {
     @Shadow public ClientPlayerEntity player;
     @Shadow public HitResult crosshairTarget;
 
-    private static final double AIR_SELECT_RANGE = 64.0;
+    // Air selection range is now controlled by SelectionManager.selectRange (scroll-adjustable)
 
     @Inject(method = "doAttack", at = @At("HEAD"), cancellable = true)
     private void vtools$blueprintAttack(CallbackInfoReturnable<Boolean> cir) {
@@ -88,7 +88,8 @@ public abstract class BlueprintClickMixin {
         if (player == null) return null;
         Vec3d eye = player.getEyePos();
         Vec3d look = player.getRotationVec(1.0f);
-        Vec3d target = eye.add(look.multiply(AIR_SELECT_RANGE));
+        double range = SelectionManager.instance().getSelectRange();
+        Vec3d target = eye.add(look.multiply(range));
         return BlockPos.ofFloored(target.x, target.y, target.z);
     }
 }
