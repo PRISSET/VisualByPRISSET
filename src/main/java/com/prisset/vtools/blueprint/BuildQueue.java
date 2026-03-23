@@ -1,37 +1,43 @@
 package com.prisset.vtools.blueprint;
 
+import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.world.ClientWorld;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Vec3d;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 /**
  * Generates an ordered list of blocks to place from a schematic.
- * Order: bottom to top (Y ascending), then row by row (Z), then column (X).
- * Skips air blocks and blocks already correctly placed in the world.
+ * Strict layer-by-layer order: completes entire Y=0, then Y=1, etc.
+ * Within each layer, blocks are sorted by distance to player (nearest first).
  */
 public final class BuildQueue {
 
     private BuildQueue() {}
 
     /**
-     * Build the placement queue from the current placer state.
-     * Each entry: [localX, localY, localZ, paletteString, worldPos].
+     * Generate queue split into strict Y layers.
+     * Returns list of layers, each layer is a list of PlaceEntry sorted by proximity.
      */
-    public static List<PlaceEntry> generate(ClientWorld world) {
+    public static List<List<PlaceEntry>> generateLayers(ClientWorld world, ClientPlayerEntity player) {
         BlueprintPlacer placer = BlueprintPlacer.instance();
         if (!placer.isReadyToPlace()) return List.of();
 
         SchematicData schem = placer.getSchematic();
-        List<PlaceEntry> queue = new ArrayList<>();
-
         int sx = schem.getSizeX();
         int sy = schem.getSizeY();
         int sz = schem.getSizeZ();
 
-        // Bottom-up, layer by layer
+        Vec3d playerPos = player.getPos();
+
+        List<List<PlaceEntry>> layers = new ArrayList<>();
+
         for (int y = 0; y < sy; y++) {
+            List<PlaceEntry> layer = new ArrayList<>();
+
             for (int z = 0; z < sz; z++) {
                 for (int x = 0; x < sx; x++) {
                     if (schem.isAir(x, y, z)) continue;
@@ -39,22 +45,28 @@ public final class BuildQueue {
                     BlockPos worldPos = placer.localToWorld(x, y, z);
                     String expected = schem.getBlockState(x, y, z);
 
-                    // Skip already correct
                     String actual = SchematicData.encodeState(world.getBlockState(worldPos));
                     if (expected.equals(actual)) continue;
 
-                    queue.add(new PlaceEntry(x, y, z, worldPos, expected));
+                    layer.add(new PlaceEntry(x, y, z, worldPos, expected));
                 }
+            }
+
+            if (!layer.isEmpty()) {
+                // Sort within layer: nearest to player first
+                layer.sort(Comparator.comparingDouble(
+                    e -> e.worldPos.getSquaredDistance(playerPos)));
+                layers.add(layer);
             }
         }
 
-        return queue;
+        return layers;
     }
 
     public static class PlaceEntry {
         public final int localX, localY, localZ;
         public final BlockPos worldPos;
-        public final String blockState; // palette string: "minecraft:stone" or "minecraft:oak_stairs[facing=east,half=bottom]"
+        public final String blockState;
 
         public PlaceEntry(int lx, int ly, int lz, BlockPos worldPos, String blockState) {
             this.localX = lx; this.localY = ly; this.localZ = lz;
@@ -62,9 +74,6 @@ public final class BuildQueue {
             this.blockState = blockState;
         }
 
-        /**
-         * Extract block ID without properties: "minecraft:oak_stairs[...]" -> "minecraft:oak_stairs"
-         */
         public String getBlockId() {
             int bracket = blockState.indexOf('[');
             return bracket >= 0 ? blockState.substring(0, bracket) : blockState;
