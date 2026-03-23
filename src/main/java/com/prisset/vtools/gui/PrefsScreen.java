@@ -1,13 +1,10 @@
 package com.prisset.vtools.gui;
 
 import com.prisset.vtools.config.DisplayPrefs;
-import com.prisset.vtools.survey.SampleCollector;
-import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.text.Text;
-import net.minecraft.util.math.Direction;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -64,6 +61,8 @@ public class PrefsScreen extends Screen {
         rows.add(new Slider("\u0417\u0443\u043c (C)", 1.5f, 10f, prefs.getZoomStrength(), v -> prefs.setZoomStrength(v.floatValue())));
         rows.add(new Toggle("\u0421\u043b\u0435\u0434", prefs::isTrailEnabled, v -> prefs.setTrailEnabled(v)));
         rows.add(new Slider("\u0414\u043b\u0438\u043d\u0430", 5, 40, prefs.getTrailLength(), v -> prefs.setTrailLength(v.intValue())));
+        rows.add(new Toggle("\u0411\u0435\u0437 \u0442\u0440\u044f\u0441\u043a\u0438", prefs::isNoBobbing, v -> prefs.setNoBobbing(v)));
+        rows.add(new Toggle("\u0418\u043d\u0434\u0438\u043a\u0430\u0442\u043e\u0440 \u0430\u0442\u0430\u043a\u0438", prefs::isAttackIndicator, v -> prefs.setAttackIndicator(v)));
 
         // -- MENU section (menu neon color, separate from overlay) --
         rows.add(new Label("\u041c\u0415\u041d\u042e"));
@@ -73,38 +72,7 @@ public class PrefsScreen extends Screen {
         rows.add(new Slider("\u0417\u0435\u043b\u0451\u043d\u044b\u0439", 0, 255, prefs.getMenuG(), v -> prefs.setMenuG(v.intValue())));
         rows.add(new Slider("\u0421\u0438\u043d\u0438\u0439", 0, 255, prefs.getMenuB(), v -> prefs.setMenuB(v.intValue())));
 
-        // -- MINE section --
-        rows.add(new Label("\u0428\u0410\u0425\u0422\u0410"));
-        rows.add(new Toggle("\u0412\u043a\u043b\u044e\u0447\u0438\u0442\u044c", prefs::isSurveyEnabled, v -> {
-            prefs.setSurveyEnabled(v);
-            if (v) {
-                MinecraftClient mc = MinecraftClient.getInstance();
-                if (mc.player != null) {
-                    Direction facing = mc.player.getHorizontalFacing();
-                    SampleCollector.instance().start(facing);
-                }
-            } else {
-                SampleCollector.instance().stop();
-            }
-        }));
-        rows.add(new Slider("\u0420\u0430\u0434\u0438\u0443\u0441", 16, 64, prefs.getSurveyRadius(), v -> prefs.setSurveyRadius(v.intValue())));
-        rows.add(new Toggle("\u0410\u043b\u043c\u0430\u0437\u044b", prefs::isOreDiamond, v -> prefs.setOreDiamond(v)));
-        rows.add(new Slider("\u041a\u043e\u043b-\u0432\u043e", 0, 999, prefs.getCntDiamond(), v -> prefs.setCntDiamond(v.intValue())));
-        rows.add(new Toggle("\u0417\u043e\u043b\u043e\u0442\u043e", prefs::isOreGold, v -> prefs.setOreGold(v)));
-        rows.add(new Slider("\u041a\u043e\u043b-\u0432\u043e", 0, 999, prefs.getCntGold(), v -> prefs.setCntGold(v.intValue())));
-        rows.add(new Toggle("\u0416\u0435\u043b\u0435\u0437\u043e", prefs::isOreIron, v -> prefs.setOreIron(v)));
-        rows.add(new Slider("\u041a\u043e\u043b-\u0432\u043e", 0, 999, prefs.getCntIron(), v -> prefs.setCntIron(v.intValue())));
-        rows.add(new Toggle("\u041c\u0435\u0434\u044c", prefs::isOreCopper, v -> prefs.setOreCopper(v)));
-        rows.add(new Slider("\u041a\u043e\u043b-\u0432\u043e", 0, 999, prefs.getCntCopper(), v -> prefs.setCntCopper(v.intValue())));
-        rows.add(new Toggle("\u0420\u0435\u0434\u0441\u0442\u043e\u0443\u043d", prefs::isOreRedstone, v -> prefs.setOreRedstone(v)));
-        rows.add(new Slider("\u041a\u043e\u043b-\u0432\u043e", 0, 999, prefs.getCntRedstone(), v -> prefs.setCntRedstone(v.intValue())));
-        rows.add(new Toggle("\u041b\u0430\u043f\u0438\u0441", prefs::isOreLapis, v -> prefs.setOreLapis(v)));
-        rows.add(new Slider("\u041a\u043e\u043b-\u0432\u043e", 0, 999, prefs.getCntLapis(), v -> prefs.setCntLapis(v.intValue())));
-        rows.add(new Toggle("\u0418\u0437\u0443\u043c\u0440\u0443\u0434", prefs::isOreEmerald, v -> prefs.setOreEmerald(v)));
-        rows.add(new Slider("\u041a\u043e\u043b-\u0432\u043e", 0, 999, prefs.getCntEmerald(), v -> prefs.setCntEmerald(v.intValue())));
-        rows.add(new Toggle("\u0423\u0433\u043e\u043b\u044c", prefs::isOreCoal, v -> prefs.setOreCoal(v)));
-        rows.add(new Slider("\u041a\u043e\u043b-\u0432\u043e", 0, 999, prefs.getCntCoal(), v -> prefs.setCntCoal(v.intValue())));
-        rows.add(new Toggle("\u0410\u0432\u0442\u043e-\u0432\u044b\u0445\u043e\u0434", prefs::isSurveyAutoLeave, v -> prefs.setSurveyAutoLeave(v)));
+
 
         totalH = PAD + 14;
         for (Row r : rows) totalH += r instanceof Label ? LABEL_H : ROW_H;

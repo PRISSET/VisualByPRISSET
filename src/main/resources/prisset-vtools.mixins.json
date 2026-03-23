@@ -7,8 +7,8 @@
     "KeyboardMixin",
     "InputTimingMixin",
     "ZoomMixin",
-    "SurveyTickMixin",
-    "MovementInputMixin"
+    "BobViewMixin",
+    "AttackIndicatorMixin"
   ],
   "injectors": {
     "defaultRequire": 1

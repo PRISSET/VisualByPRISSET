@@ -41,25 +41,8 @@ public class DisplayPrefs {
     private boolean menuRgbMode;
     private float menuRgbSpeed;
 
-    private boolean surveyEnabled;
-    private int surveyRadius;
-    private boolean oreDiamond;
-    private boolean oreGold;
-    private boolean oreIron;
-    private boolean oreCopper;
-    private boolean oreRedstone;
-    private boolean oreLapis;
-    private boolean oreEmerald;
-    private boolean oreCoal;
-    private boolean surveyAutoLeave;
-    private int cntDiamond;
-    private int cntGold;
-    private int cntIron;
-    private int cntCopper;
-    private int cntRedstone;
-    private int cntLapis;
-    private int cntEmerald;
-    private int cntCoal;
+    private boolean noBobbing;
+    private boolean attackIndicator;
 
     private DisplayPrefs() {
         this.active = false;
@@ -87,25 +70,8 @@ public class DisplayPrefs {
         this.menuB = 255;
         this.menuRgbMode = false;
         this.menuRgbSpeed = 1.0f;
-        this.surveyEnabled = false;
-        this.surveyRadius = 32;
-        this.oreDiamond = true;
-        this.oreGold = false;
-        this.oreIron = false;
-        this.oreCopper = false;
-        this.oreRedstone = false;
-        this.oreLapis = false;
-        this.oreEmerald = false;
-        this.oreCoal = false;
-        this.surveyAutoLeave = false;
-        this.cntDiamond = 0;
-        this.cntGold = 0;
-        this.cntIron = 0;
-        this.cntCopper = 0;
-        this.cntRedstone = 0;
-        this.cntLapis = 0;
-        this.cntEmerald = 0;
-        this.cntCoal = 0;
+        this.noBobbing = false;
+        this.attackIndicator = true;
     }
 
     public static DisplayPrefs defaults() {
@@ -141,25 +107,8 @@ public class DisplayPrefs {
         obj.addProperty("mb", menuB);
         obj.addProperty("mrbm", menuRgbMode);
         obj.addProperty("mrs", menuRgbSpeed);
-        obj.addProperty("se", surveyEnabled);
-        obj.addProperty("sr", surveyRadius);
-        obj.addProperty("od", oreDiamond);
-        obj.addProperty("og", oreGold);
-        obj.addProperty("oi", oreIron);
-        obj.addProperty("oc", oreCopper);
-        obj.addProperty("or", oreRedstone);
-        obj.addProperty("ol", oreLapis);
-        obj.addProperty("oe", oreEmerald);
-        obj.addProperty("ok", oreCoal);
-        obj.addProperty("sal", surveyAutoLeave);
-        obj.addProperty("cd", cntDiamond);
-        obj.addProperty("cg", cntGold);
-        obj.addProperty("ci", cntIron);
-        obj.addProperty("cc", cntCopper);
-        obj.addProperty("cr", cntRedstone);
-        obj.addProperty("cl", cntLapis);
-        obj.addProperty("ce", cntEmerald);
-        obj.addProperty("ck", cntCoal);
+        obj.addProperty("nb", noBobbing);
+        obj.addProperty("ai", attackIndicator);
         return obj;
     }
 
@@ -190,25 +139,8 @@ public class DisplayPrefs {
         if (obj.has("mb")) prefs.menuB = obj.get("mb").getAsInt();
         if (obj.has("mrbm")) prefs.menuRgbMode = obj.get("mrbm").getAsBoolean();
         if (obj.has("mrs")) prefs.menuRgbSpeed = obj.get("mrs").getAsFloat();
-        if (obj.has("se")) prefs.surveyEnabled = obj.get("se").getAsBoolean();
-        if (obj.has("sr")) prefs.surveyRadius = obj.get("sr").getAsInt();
-        if (obj.has("od")) prefs.oreDiamond = obj.get("od").getAsBoolean();
-        if (obj.has("og")) prefs.oreGold = obj.get("og").getAsBoolean();
-        if (obj.has("oi")) prefs.oreIron = obj.get("oi").getAsBoolean();
-        if (obj.has("oc")) prefs.oreCopper = obj.get("oc").getAsBoolean();
-        if (obj.has("or")) prefs.oreRedstone = obj.get("or").getAsBoolean();
-        if (obj.has("ol")) prefs.oreLapis = obj.get("ol").getAsBoolean();
-        if (obj.has("oe")) prefs.oreEmerald = obj.get("oe").getAsBoolean();
-        if (obj.has("ok")) prefs.oreCoal = obj.get("ok").getAsBoolean();
-        if (obj.has("sal")) prefs.surveyAutoLeave = obj.get("sal").getAsBoolean();
-        if (obj.has("cd")) prefs.cntDiamond = obj.get("cd").getAsInt();
-        if (obj.has("cg")) prefs.cntGold = obj.get("cg").getAsInt();
-        if (obj.has("ci")) prefs.cntIron = obj.get("ci").getAsInt();
-        if (obj.has("cc")) prefs.cntCopper = obj.get("cc").getAsInt();
-        if (obj.has("cr")) prefs.cntRedstone = obj.get("cr").getAsInt();
-        if (obj.has("cl")) prefs.cntLapis = obj.get("cl").getAsInt();
-        if (obj.has("ce")) prefs.cntEmerald = obj.get("ce").getAsInt();
-        if (obj.has("ck")) prefs.cntCoal = obj.get("ck").getAsInt();
+        if (obj.has("nb")) prefs.noBobbing = obj.get("nb").getAsBoolean();
+        if (obj.has("ai")) prefs.attackIndicator = obj.get("ai").getAsBoolean();
         return prefs;
     }
 
@@ -272,25 +204,8 @@ public class DisplayPrefs {
     public int getMenuB() { return menuB; }
     public boolean isMenuRgbMode() { return menuRgbMode; }
     public float getMenuRgbSpeed() { return menuRgbSpeed; }
-    public boolean isSurveyEnabled() { return surveyEnabled; }
-    public int getSurveyRadius() { return surveyRadius; }
-    public boolean isOreDiamond() { return oreDiamond; }
-    public boolean isOreGold() { return oreGold; }
-    public boolean isOreIron() { return oreIron; }
-    public boolean isOreCopper() { return oreCopper; }
-    public boolean isOreRedstone() { return oreRedstone; }
-    public boolean isOreLapis() { return oreLapis; }
-    public boolean isOreEmerald() { return oreEmerald; }
-    public boolean isOreCoal() { return oreCoal; }
-    public boolean isSurveyAutoLeave() { return surveyAutoLeave; }
-    public int getCntDiamond() { return cntDiamond; }
-    public int getCntGold() { return cntGold; }
-    public int getCntIron() { return cntIron; }
-    public int getCntCopper() { return cntCopper; }
-    public int getCntRedstone() { return cntRedstone; }
-    public int getCntLapis() { return cntLapis; }
-    public int getCntEmerald() { return cntEmerald; }
-    public int getCntCoal() { return cntCoal; }
+    public boolean isNoBobbing() { return noBobbing; }
+    public boolean isAttackIndicator() { return attackIndicator; }
     // --- Setters ---
 
     public void setActive(boolean val) { this.active = val; }
@@ -318,25 +233,8 @@ public class DisplayPrefs {
     public void setMenuB(int val) { this.menuB = clamp(val, 0, 255); }
     public void setMenuRgbMode(boolean val) { this.menuRgbMode = val; }
     public void setMenuRgbSpeed(float val) { this.menuRgbSpeed = clamp(val, 0.1f, 5.0f); }
-    public void setSurveyEnabled(boolean val) { this.surveyEnabled = val; }
-    public void setSurveyRadius(int val) { this.surveyRadius = clamp(val, 16, 64); }
-    public void setOreDiamond(boolean val) { this.oreDiamond = val; }
-    public void setOreGold(boolean val) { this.oreGold = val; }
-    public void setOreIron(boolean val) { this.oreIron = val; }
-    public void setOreCopper(boolean val) { this.oreCopper = val; }
-    public void setOreRedstone(boolean val) { this.oreRedstone = val; }
-    public void setOreLapis(boolean val) { this.oreLapis = val; }
-    public void setOreEmerald(boolean val) { this.oreEmerald = val; }
-    public void setOreCoal(boolean val) { this.oreCoal = val; }
-    public void setSurveyAutoLeave(boolean val) { this.surveyAutoLeave = val; }
-    public void setCntDiamond(int val) { this.cntDiamond = clamp(val, 0, 999); }
-    public void setCntGold(int val) { this.cntGold = clamp(val, 0, 999); }
-    public void setCntIron(int val) { this.cntIron = clamp(val, 0, 999); }
-    public void setCntCopper(int val) { this.cntCopper = clamp(val, 0, 999); }
-    public void setCntRedstone(int val) { this.cntRedstone = clamp(val, 0, 999); }
-    public void setCntLapis(int val) { this.cntLapis = clamp(val, 0, 999); }
-    public void setCntEmerald(int val) { this.cntEmerald = clamp(val, 0, 999); }
-    public void setCntCoal(int val) { this.cntCoal = clamp(val, 0, 999); }
+    public void setNoBobbing(boolean val) { this.noBobbing = val; }
+    public void setAttackIndicator(boolean val) { this.attackIndicator = val; }
     // --- Utility ---
 
     private static float clamp(float val, float min, float max) {
