@@ -62,7 +62,6 @@ public class PrefsScreen extends Screen {
         rows.add(new Toggle("\u0421\u043b\u0435\u0434", prefs::isTrailEnabled, v -> prefs.setTrailEnabled(v)));
         rows.add(new Slider("\u0414\u043b\u0438\u043d\u0430", 5, 40, prefs.getTrailLength(), v -> prefs.setTrailLength(v.intValue())));
         rows.add(new Toggle("\u0411\u0435\u0437 \u0442\u0440\u044f\u0441\u043a\u0438", prefs::isNoBobbing, v -> prefs.setNoBobbing(v)));
-        rows.add(new Toggle("\u0418\u043d\u0434\u0438\u043a\u0430\u0442\u043e\u0440 \u0430\u0442\u0430\u043a\u0438", prefs::isAttackIndicator, v -> prefs.setAttackIndicator(v)));
 
         // -- MENU section (menu neon color, separate from overlay) --
         rows.add(new Label("\u041c\u0415\u041d\u042e"));
