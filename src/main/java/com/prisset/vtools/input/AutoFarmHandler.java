@@ -7,6 +7,7 @@ import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.network.ClientPlayerInteractionManager;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
+import net.minecraft.entity.mob.MobEntity;
 import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.item.FoodComponent;
 import net.minecraft.item.Item;
@@ -50,9 +51,8 @@ public final class AutoFarmHandler {
         if (target == null || target.getType() != HitResult.Type.ENTITY) return;
 
         Entity entity = ((EntityHitResult) target).getEntity();
-        if (!(entity instanceof LivingEntity living)) return;
-        if (entity == player) return;
-        if (living.isDead()) return;
+        if (!(entity instanceof MobEntity mob)) return;
+        if (mob.isDead()) return;
 
         im.attackEntity(player, entity);
         player.swingHand(Hand.MAIN_HAND);
@@ -65,7 +65,7 @@ public final class AutoFarmHandler {
         if (swapCooldown > 0) return;
 
         PlayerInventory inv = player.getInventory();
-        int bestSlot = -1;
+        int bestInvSlot = -1;
         float bestDmg = 0;
 
         for (int i = 0; i < 36; i++) {
@@ -75,17 +75,18 @@ public final class AutoFarmHandler {
             float dmg = sword.getAttackDamage();
             if (dmg > bestDmg) {
                 bestDmg = dmg;
-                bestSlot = i;
+                bestInvSlot = i;
             }
         }
 
-        if (bestSlot < 0) return;
+        if (bestInvSlot < 0) return;
 
-        if (bestSlot < 9) {
-            inv.selectedSlot = bestSlot;
+        if (bestInvSlot < 9) {
+            inv.selectedSlot = bestInvSlot;
         } else {
+            int screenSlot = invToScreen(bestInvSlot);
             int syncId = player.currentScreenHandler.syncId;
-            mc.interactionManager.clickSlot(syncId, bestSlot, inv.selectedSlot, SlotActionType.SWAP, player);
+            im(mc).clickSlot(syncId, screenSlot, inv.selectedSlot, SlotActionType.SWAP, player);
         }
         swapCooldown = 5;
     }
@@ -100,11 +101,12 @@ public final class AutoFarmHandler {
 
         if (!hasFood) {
             if (swapCooldown > 0) return;
-            int foodSlot = findBestFood(player);
-            if (foodSlot < 0) return;
+            int foodInvSlot = findBestFood(player);
+            if (foodInvSlot < 0) return;
 
+            int screenSlot = invToScreen(foodInvSlot);
             int syncId = player.currentScreenHandler.syncId;
-            mc.interactionManager.clickSlot(syncId, foodSlot, 40, SlotActionType.SWAP, player);
+            im(mc).clickSlot(syncId, screenSlot, 45, SlotActionType.SWAP, player);
             swapCooldown = 5;
             return;
         }
@@ -134,5 +136,14 @@ public final class AutoFarmHandler {
         }
 
         return bestSlot;
+    }
+
+    private static int invToScreen(int invSlot) {
+        if (invSlot < 9) return invSlot + 36;
+        return invSlot;
+    }
+
+    private static ClientPlayerInteractionManager im(MinecraftClient mc) {
+        return mc.interactionManager;
     }
 }
