@@ -20,7 +20,10 @@ import net.minecraft.util.hit.HitResult;
 
 public final class AutoFarmHandler {
 
+    private static final int OFFHAND_SCREEN_SLOT = 45;
     private static int swapCooldown = 0;
+    private static int eatSwapPhase = 0;
+    private static int eatSwapSlot = -1;
 
     private AutoFarmHandler() {}
 
@@ -93,6 +96,16 @@ public final class AutoFarmHandler {
 
     private static void tickAutoEat(MinecraftClient mc) {
         ClientPlayerEntity player = mc.player;
+        ClientPlayerInteractionManager im = mc.interactionManager;
+        int syncId = player.currentScreenHandler.syncId;
+
+        if (eatSwapPhase == 1) {
+            im.clickSlot(syncId, OFFHAND_SCREEN_SLOT, 0, SlotActionType.PICKUP, player);
+            eatSwapPhase = 0;
+            eatSwapSlot = -1;
+            swapCooldown = 3;
+            return;
+        }
 
         if (player.getHungerManager().getFoodLevel() >= 20) return;
 
@@ -105,14 +118,20 @@ public final class AutoFarmHandler {
             if (foodInvSlot < 0) return;
 
             int screenSlot = invToScreen(foodInvSlot);
-            int syncId = player.currentScreenHandler.syncId;
-            im(mc).clickSlot(syncId, screenSlot, 45, SlotActionType.SWAP, player);
+            im.clickSlot(syncId, screenSlot, 0, SlotActionType.PICKUP, player);
+            im.clickSlot(syncId, OFFHAND_SCREEN_SLOT, 0, SlotActionType.PICKUP, player);
+
+            ItemStack cursor = player.currentScreenHandler.getCursorStack();
+            if (cursor != null && !cursor.isEmpty()) {
+                im.clickSlot(syncId, screenSlot, 0, SlotActionType.PICKUP, player);
+            }
+
             swapCooldown = 5;
             return;
         }
 
         if (!player.isUsingItem()) {
-            mc.interactionManager.interactItem(player, Hand.OFF_HAND);
+            im.interactItem(player, Hand.OFF_HAND);
         }
     }
 
