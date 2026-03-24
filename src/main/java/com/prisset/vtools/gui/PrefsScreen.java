@@ -482,6 +482,15 @@ public class PrefsScreen extends Screen {
                 if (!hasButton) onSubmit.accept(buffer);
             }
         }
+
+        void paste(String text) {
+            String clean = text.replaceAll("[\\r\\n\\t]", "");
+            int space = maxLen - buffer.length();
+            if (space <= 0) return;
+            if (clean.length() > space) clean = clean.substring(0, space);
+            buffer += clean;
+            if (!hasButton) onSubmit.accept(buffer);
+        }
     }
 
     class TeammateRow extends Row {
@@ -515,6 +524,13 @@ public class PrefsScreen extends Screen {
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (focusedInput != null) {
+            if (keyCode == 86 && (modifiers & 0x2) != 0 || keyCode == 86 && (modifiers & 0x8) != 0) {
+                String clip = net.minecraft.client.MinecraftClient.getInstance().keyboard.getClipboard();
+                if (clip != null && !clip.isEmpty()) {
+                    focusedInput.paste(clip);
+                }
+                return true;
+            }
             if (keyCode == 259) {
                 focusedInput.backspace();
                 return true;
