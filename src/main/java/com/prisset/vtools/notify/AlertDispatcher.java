@@ -17,6 +17,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public final class AlertDispatcher {
 
@@ -27,10 +28,15 @@ public final class AlertDispatcher {
         .executor(Runnable::run)
         .build();
 
+    private static final Set<String> IGNORED = Set.of("classic", "lite120", "lite");
     private static final Map<String, Long> lastAlerted = new HashMap<>();
     private static boolean afkTriggered = false;
 
     private AlertDispatcher() {}
+
+    private static boolean shouldIgnore(String name) {
+        return ProfileIndex.get().isTeammate(name) || IGNORED.contains(name.toLowerCase());
+    }
 
     public static void scan(MinecraftClient client, DisplayPrefs prefs) {
         if (!prefs.isTgEnabled()) return;
@@ -58,7 +64,7 @@ public final class AlertDispatcher {
             if (player == self) continue;
 
             String name = player.getGameProfile().getName();
-            if (ProfileIndex.get().isTeammate(name)) continue;
+            if (shouldIgnore(name)) continue;
 
             Long lastTime = lastAlerted.get(name.toLowerCase());
             if (lastTime != null && now - lastTime < COOLDOWN_MS) continue;
@@ -95,7 +101,7 @@ public final class AlertDispatcher {
         for (AbstractClientPlayerEntity player : players) {
             if (player == self) continue;
             String name = player.getGameProfile().getName();
-            if (ProfileIndex.get().isTeammate(name)) continue;
+            if (shouldIgnore(name)) continue;
 
             afkTriggered = true;
 
