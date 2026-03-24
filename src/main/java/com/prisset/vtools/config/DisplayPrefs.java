@@ -43,6 +43,9 @@ public class DisplayPrefs {
 
     private boolean noBobbing;
     private boolean wTap;
+    private boolean overlayEnabled;
+    private boolean hitboxEnabled;
+    private boolean espEnabled;
 
     private DisplayPrefs() {
         this.active = false;
@@ -72,6 +75,9 @@ public class DisplayPrefs {
         this.menuRgbSpeed = 1.0f;
         this.noBobbing = false;
         this.wTap = false;
+        this.overlayEnabled = true;
+        this.hitboxEnabled = true;
+        this.espEnabled = false;
     }
 
     public static DisplayPrefs defaults() {
@@ -109,6 +115,9 @@ public class DisplayPrefs {
         obj.addProperty("mrs", menuRgbSpeed);
         obj.addProperty("nb", noBobbing);
         obj.addProperty("wt", wTap);
+        obj.addProperty("oe", overlayEnabled);
+        obj.addProperty("he", hitboxEnabled);
+        obj.addProperty("ee", espEnabled);
         return obj;
     }
 
@@ -141,6 +150,9 @@ public class DisplayPrefs {
         if (obj.has("mrs")) prefs.menuRgbSpeed = obj.get("mrs").getAsFloat();
         if (obj.has("nb")) prefs.noBobbing = obj.get("nb").getAsBoolean();
         if (obj.has("wt")) prefs.wTap = obj.get("wt").getAsBoolean();
+        if (obj.has("oe")) prefs.overlayEnabled = obj.get("oe").getAsBoolean();
+        if (obj.has("he")) prefs.hitboxEnabled = obj.get("he").getAsBoolean();
+        if (obj.has("ee")) prefs.espEnabled = obj.get("ee").getAsBoolean();
         return prefs;
     }
 
@@ -206,6 +218,9 @@ public class DisplayPrefs {
     public float getMenuRgbSpeed() { return menuRgbSpeed; }
     public boolean isNoBobbing() { return noBobbing; }
     public boolean isWTap() { return wTap; }
+    public boolean isOverlayEnabled() { return overlayEnabled; }
+    public boolean isHitboxEnabled() { return hitboxEnabled; }
+    public boolean isEspEnabled() { return espEnabled; }
     // --- Setters ---
 
     public void setActive(boolean val) { this.active = val; }
@@ -235,6 +250,9 @@ public class DisplayPrefs {
     public void setMenuRgbSpeed(float val) { this.menuRgbSpeed = clamp(val, 0.1f, 5.0f); }
     public void setNoBobbing(boolean val) { this.noBobbing = val; }
     public void setWTap(boolean val) { this.wTap = val; }
+    public void setOverlayEnabled(boolean val) { this.overlayEnabled = val; }
+    public void setHitboxEnabled(boolean val) { this.hitboxEnabled = val; }
+    public void setEspEnabled(boolean val) { this.espEnabled = val; }
     // --- Utility ---
 
     private static float clamp(float val, float min, float max) {

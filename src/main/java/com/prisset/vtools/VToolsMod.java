@@ -1,6 +1,7 @@
 package com.prisset.vtools;
 
 import com.prisset.vtools.config.DisplayPrefs;
+import com.prisset.vtools.config.ProfileIndex;
 import com.prisset.vtools.gui.PrefsScreen;
 import com.prisset.vtools.input.SequenceListener;
 import com.prisset.vtools.input.WTapHandler;
@@ -17,6 +18,7 @@ public class VToolsMod implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         prefs = DisplayPrefs.load();
+        ProfileIndex.get().load();
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             tickCounter++;

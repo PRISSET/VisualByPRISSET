@@ -1,6 +1,7 @@
 package com.prisset.vtools.render;
 
 import com.prisset.vtools.config.DisplayPrefs;
+import com.prisset.vtools.config.ProfileIndex;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.render.*;
@@ -56,7 +57,12 @@ public final class OverlayPainter {
         float r, g, b;
         float a = prefs.getTintA() / 255f;
 
-        if (prefs.isRgbMode()) {
+        boolean isTeammate = (entity instanceof PlayerEntity player)
+            && ProfileIndex.get().isTeammate(player.getGameProfile().getName());
+
+        if (isTeammate) {
+            r = 0f; g = 1f; b = 0f;
+        } else if (prefs.isRgbMode()) {
             float entityOffset = (entity.getId() * 0.12f) % 1.0f;
             float hue = ((System.currentTimeMillis() % 10000L) / 10000f * prefs.getRgbSpeed() + entityOffset) % 1.0f;
             int rgb = Color.HSBtoRGB(hue, 1.0f, 1.0f);
@@ -72,29 +78,31 @@ public final class OverlayPainter {
         matrices.push();
         matrices.translate(x, y, z);
 
-        Box box = new Box(
-            -drawW / 2.0, 0, -drawW / 2.0,
-             drawW / 2.0, drawH, drawW / 2.0
-        );
-
         VertexConsumerProvider.Immediate immediate =
             MinecraftClient.getInstance().getBufferBuilders().getEntityVertexConsumers();
-        VertexConsumer lineBuffer = immediate.getBuffer(RenderLayer.getLines());
 
-        WorldRenderer.drawBox(matrices, lineBuffer, box, r, g, b, a);
+        if (prefs.isHitboxEnabled()) {
+            Box box = new Box(
+                -drawW / 2.0, 0, -drawW / 2.0,
+                 drawW / 2.0, drawH, drawW / 2.0
+            );
 
-        // Eye line for living entities
-        if (entity instanceof LivingEntity living) {
-            float eyeY = living.getStandingEyeHeight();
-            if (eyeY > 0 && eyeY < drawH) {
-                drawLine(matrices, lineBuffer,
-                    (float)(-drawW / 2.0), eyeY, 0,
-                    (float)(drawW / 2.0), eyeY, 0,
-                    1.0f, 0.0f, 0.0f, 0.8f);
+            VertexConsumer lineBuffer = immediate.getBuffer(RenderLayer.getLines());
+
+            WorldRenderer.drawBox(matrices, lineBuffer, box, r, g, b, a);
+
+            if (entity instanceof LivingEntity living) {
+                float eyeY = living.getStandingEyeHeight();
+                if (eyeY > 0 && eyeY < drawH) {
+                    drawLine(matrices, lineBuffer,
+                        (float)(-drawW / 2.0), eyeY, 0,
+                        (float)(drawW / 2.0), eyeY, 0,
+                        1.0f, 0.0f, 0.0f, 0.8f);
+                }
             }
-        }
 
-        immediate.draw();
+            immediate.draw();
+        }
 
         // Health hearts above head
         if (prefs.isHealthBars() && entity instanceof LivingEntity living) {

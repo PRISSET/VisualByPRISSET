@@ -37,6 +37,7 @@ public abstract class RenderPassMixin {
         if (client.world == null || prefs == null) return;
 
         if (!prefs.isActive()) return;
+        if (!prefs.isOverlayEnabled()) return;
 
         if (prefs.isDebugOnly()) {
             boolean debugActive = client.getEntityRenderDispatcher()

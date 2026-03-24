@@ -1,6 +1,7 @@
 package com.prisset.vtools.gui;
 
 import com.prisset.vtools.config.DisplayPrefs;
+import com.prisset.vtools.config.ProfileIndex;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.font.TextRenderer;
@@ -26,6 +27,9 @@ public class PrefsScreen extends Screen {
     private int scrollOffset;
     private int maxScroll;
     private Row drag;
+    private String inputBuffer = "";
+    private boolean inputFocused = false;
+    private long cursorBlink = 0;
 
     public PrefsScreen(DisplayPrefs prefs) {
         super(Text.literal("PRISSET"));
@@ -40,6 +44,9 @@ public class PrefsScreen extends Screen {
 
         // -- OVERLAY section --
         rows.add(new Label("\u041e\u0412\u0415\u0420\u041b\u0415\u0419"));
+        rows.add(new Toggle("\u041e\u0432\u0435\u0440\u043b\u0435\u0439", prefs::isOverlayEnabled, v -> prefs.setOverlayEnabled(v)));
+        rows.add(new Toggle("\u0425\u0438\u0442\u0431\u043e\u043a\u0441\u044b", prefs::isHitboxEnabled, v -> prefs.setHitboxEnabled(v)));
+        rows.add(new Toggle("ESP", prefs::isEspEnabled, v -> prefs.setEspEnabled(v)));
         rows.add(new Toggle("\u041f\u043e\u043a\u0430\u0437\u044b\u0432\u0430\u0442\u044c", prefs::isActive, v -> prefs.setActive(v)));
         rows.add(new Toggle("\u0418\u0433\u0440\u043e\u043a\u0438", prefs::isFilterPlayers, v -> prefs.setFilterPlayers(v)));
         rows.add(new Toggle("\u041c\u043e\u0431\u044b", prefs::isFilterMobs, v -> prefs.setFilterMobs(v)));
@@ -63,6 +70,13 @@ public class PrefsScreen extends Screen {
         rows.add(new Slider("\u0414\u043b\u0438\u043d\u0430", 5, 40, prefs.getTrailLength(), v -> prefs.setTrailLength(v.intValue())));
         rows.add(new Toggle("\u0411\u0435\u0437 \u0442\u0440\u044f\u0441\u043a\u0438", prefs::isNoBobbing, v -> prefs.setNoBobbing(v)));
         rows.add(new Toggle("W \u0430\u0432\u0442\u043e\u043c\u0430\u0442", prefs::isWTap, v -> prefs.setWTap(v)));
+
+        // -- TEAMMATES section --
+        rows.add(new Label("\u0422\u0418\u041c\u041c\u0415\u0419\u0422\u042b"));
+        rows.add(new TextInputRow("\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043d\u0438\u043a"));
+        for (String name : ProfileIndex.get().all()) {
+            rows.add(new TeammateRow(name, this));
+        }
 
         // -- MENU section (menu neon color, separate from overlay) --
         rows.add(new Label("\u041c\u0415\u041d\u042e"));
@@ -193,15 +207,18 @@ public class PrefsScreen extends Screen {
     @Override
     public boolean mouseClicked(double mx, double my, int btn) {
         if (btn != 0) return super.mouseClicked(mx, my, btn);
+        boolean clickedInput = false;
         int visibleH = Math.min(totalH, height - 20);
         for (Row r : rows) {
             if (!(r instanceof Label) && r.contains((int) mx, (int) my)
                     && my >= wy && my < wy + visibleH) {
                 r.onClick((int) mx);
                 if (r instanceof Slider) drag = r;
+                if (r instanceof TextInputRow) clickedInput = true;
                 return true;
             }
         }
+        if (!clickedInput) inputFocused = false;
         return super.mouseClicked(mx, my, btn);
     }
 
@@ -374,5 +391,117 @@ public class PrefsScreen extends Screen {
             flash = true;
             flashTime = System.currentTimeMillis();
         }
+    }
+
+    class TextInputRow extends Row {
+        final String hint;
+
+        TextInputRow(String h) { hint = h; }
+
+        @Override
+        void render(DrawContext ctx, TextRenderer tr, int mx, int my, int nc) {
+            int bg = inputFocused ? 0xFF1A1A24 : 0xFF0E0E12;
+            ctx.fill(rx, ry + 1, rx + rw - 46, ry + rh - 1, bg);
+
+            int border = inputFocused ? rgba(nr(nc), ng(nc), nb(nc), 120) : 0xFF2A2A30;
+            ctx.fill(rx, ry + 1, rx + rw - 46, ry + 2, border);
+            ctx.fill(rx, ry + rh - 2, rx + rw - 46, ry + rh - 1, border);
+            ctx.fill(rx, ry + 1, rx + 1, ry + rh - 1, border);
+            ctx.fill(rx + rw - 47, ry + 1, rx + rw - 46, ry + rh - 1, border);
+
+            String display = inputBuffer.isEmpty() ? hint : inputBuffer;
+            int textColor = inputBuffer.isEmpty() ? 0xFF4A4A54 : 0xFFD8D8E0;
+            ctx.drawTextWithShadow(tr, display, rx + 4, ry + 4, textColor);
+
+            if (inputFocused && (System.currentTimeMillis() / 500) % 2 == 0) {
+                int curX = rx + 4 + tr.getWidth(inputBuffer);
+                ctx.fill(curX, ry + 3, curX + 1, ry + rh - 3, 0xFFD8D8E0);
+            }
+
+            boolean btnHov = mx >= rx + rw - 44 && mx < rx + rw && my >= ry && my < ry + rh;
+            int btnBg = btnHov ? rgba(nr(nc), ng(nc), nb(nc), 40) : 0xFF1A1A24;
+            ctx.fill(rx + rw - 44, ry + 1, rx + rw, ry + rh - 1, btnBg);
+            ctx.fill(rx + rw - 44, ry + 1, rx + rw, ry + 2, border);
+            ctx.fill(rx + rw - 44, ry + rh - 2, rx + rw, ry + rh - 1, border);
+
+            String plus = "+";
+            int pw = tr.getWidth(plus);
+            ctx.drawTextWithShadow(tr, plus, rx + rw - 22 - pw / 2, ry + 4, 0xFF40FF40);
+        }
+
+        @Override
+        void onClick(int mx) {
+            if (mx >= rx + rw - 44) {
+                submitInput();
+            } else {
+                inputFocused = true;
+            }
+        }
+    }
+
+    class TeammateRow extends Row {
+        final String name;
+        final PrefsScreen screen;
+
+        TeammateRow(String n, PrefsScreen s) { name = n; screen = s; }
+
+        @Override
+        void render(DrawContext ctx, TextRenderer tr, int mx, int my, int nc) {
+            ctx.drawTextWithShadow(tr, name, rx + 4, ry + 4, 0xFF40FF40);
+
+            boolean btnHov = mx >= rx + rw - 24 && mx < rx + rw && my >= ry && my < ry + rh;
+            int btnBg = btnHov ? rgba(200, 40, 40, 60) : 0xFF1A1A24;
+            ctx.fill(rx + rw - 24, ry + 1, rx + rw, ry + rh - 1, btnBg);
+
+            String x = "x";
+            int xw = tr.getWidth(x);
+            ctx.drawTextWithShadow(tr, x, rx + rw - 12 - xw / 2, ry + 4, 0xFFFF4040);
+        }
+
+        @Override
+        void onClick(int mx) {
+            if (mx >= rx + rw - 24) {
+                ProfileIndex.get().remove(name);
+                screen.init();
+            }
+        }
+    }
+
+    private void submitInput() {
+        if (!inputBuffer.isBlank()) {
+            ProfileIndex.get().add(inputBuffer.trim());
+            inputBuffer = "";
+            inputFocused = false;
+            init();
+        }
+    }
+
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (inputFocused) {
+            if (keyCode == 259 && !inputBuffer.isEmpty()) {
+                inputBuffer = inputBuffer.substring(0, inputBuffer.length() - 1);
+                return true;
+            }
+            if (keyCode == 257 || keyCode == 335) {
+                submitInput();
+                return true;
+            }
+            if (keyCode == 256) {
+                inputFocused = false;
+                return true;
+            }
+            return true;
+        }
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
+    @Override
+    public boolean charTyped(char chr, int modifiers) {
+        if (inputFocused && chr >= 32 && inputBuffer.length() < 16) {
+            inputBuffer += chr;
+            return true;
+        }
+        return super.charTyped(chr, modifiers);
     }
 }
