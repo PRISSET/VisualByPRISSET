@@ -44,7 +44,7 @@ public class PrefsScreen extends Screen {
         rows.add(new Label("\u041e\u0412\u0415\u0420\u041b\u0415\u0419"));
         rows.add(new Toggle("\u041e\u0432\u0435\u0440\u043b\u0435\u0439", prefs::isOverlayEnabled, v -> prefs.setOverlayEnabled(v)));
         rows.add(new Toggle("\u0425\u0438\u0442\u0431\u043e\u043a\u0441\u044b", prefs::isHitboxEnabled, v -> prefs.setHitboxEnabled(v)));
-        rows.add(new Toggle("ESP", prefs::isEspEnabled, v -> prefs.setEspEnabled(v)));
+        rows.add(new Toggle("\u041f\u041a\u041c", prefs::isEspEnabled, v -> prefs.setEspEnabled(v)));
         rows.add(new Toggle("\u041f\u043e\u043a\u0430\u0437\u044b\u0432\u0430\u0442\u044c", prefs::isActive, v -> prefs.setActive(v)));
         rows.add(new Toggle("\u0418\u0433\u0440\u043e\u043a\u0438", prefs::isFilterPlayers, v -> prefs.setFilterPlayers(v)));
         rows.add(new Toggle("\u041c\u043e\u0431\u044b", prefs::isFilterMobs, v -> prefs.setFilterMobs(v)));
