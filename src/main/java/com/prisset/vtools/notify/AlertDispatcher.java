@@ -110,7 +110,7 @@ public final class AlertDispatcher {
             int rz = (int) player.getZ();
             String selfName = self.getGameProfile().getName();
 
-            client.player.networkHandler.sendChatCommand("hub");
+            client.world.disconnect();
 
             String token = prefs.getTgBotToken();
             String chatId = prefs.getTgChatId();
