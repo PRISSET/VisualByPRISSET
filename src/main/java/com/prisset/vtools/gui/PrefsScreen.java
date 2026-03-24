@@ -69,6 +69,8 @@ public class PrefsScreen extends Screen {
         rows.add(new Toggle("\u0411\u0435\u0437 \u0442\u0440\u044f\u0441\u043a\u0438", prefs::isNoBobbing, v -> prefs.setNoBobbing(v)));
         rows.add(new Toggle("W \u0430\u0432\u0442\u043e\u043c\u0430\u0442", prefs::isWTap, v -> prefs.setWTap(v)));
         rows.add(new Toggle("AFK \u0437\u0430\u0449\u0438\u0442\u0430", prefs::isAfkGuard, v -> prefs.setAfkGuard(v)));
+        rows.add(new Toggle("\u0410\u0432\u0442\u043e\u0444\u0430\u0440\u043c", prefs::isAutoFarm, v -> prefs.setAutoFarm(v)));
+        rows.add(new Toggle("\u0410\u0432\u0442\u043e\u0435\u0434\u0430", prefs::isAutoEat, v -> prefs.setAutoEat(v)));
 
         // -- TEAMMATES section --
         rows.add(new Label("\u0422\u0418\u041c\u041c\u0415\u0419\u0422\u042b"));

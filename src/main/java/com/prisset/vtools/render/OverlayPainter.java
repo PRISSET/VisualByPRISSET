@@ -1,5 +1,6 @@
 package com.prisset.vtools.render;
 
+import com.mojang.blaze3d.systems.RenderSystem;
 import com.prisset.vtools.config.DisplayPrefs;
 import com.prisset.vtools.config.ProfileIndex;
 import net.minecraft.client.MinecraftClient;
@@ -101,12 +102,15 @@ public final class OverlayPainter {
                 }
             }
 
+            RenderSystem.disableDepthTest();
             immediate.draw();
+            RenderSystem.enableDepthTest();
         }
 
-        // Health hearts above head
         if (prefs.isHealthBars() && entity instanceof LivingEntity living) {
+            RenderSystem.disableDepthTest();
             renderHearts(living, matrices, immediate, camera);
+            RenderSystem.enableDepthTest();
         }
 
         matrices.pop();

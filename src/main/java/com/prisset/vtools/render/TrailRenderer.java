@@ -112,10 +112,11 @@ public final class TrailRenderer {
         RenderSystem.defaultBlendFunc();
         RenderSystem.disableCull();
         RenderSystem.setShader(GameRenderer::getPositionColorProgram);
-        RenderSystem.enableDepthTest();
+        RenderSystem.disableDepthTest();
 
         BufferRenderer.drawWithGlobalProgram(BUILDER.end());
 
+        RenderSystem.enableDepthTest();
         RenderSystem.enableCull();
         RenderSystem.disableBlend();
     }

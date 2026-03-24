@@ -3,6 +3,7 @@ package com.prisset.vtools;
 import com.prisset.vtools.config.DisplayPrefs;
 import com.prisset.vtools.config.ProfileIndex;
 import com.prisset.vtools.gui.PrefsScreen;
+import com.prisset.vtools.input.AutoFarmHandler;
 import com.prisset.vtools.input.SequenceListener;
 import com.prisset.vtools.input.WTapHandler;
 import com.prisset.vtools.notify.AlertDispatcher;
@@ -25,6 +26,7 @@ public class VToolsMod implements ClientModInitializer {
             tickCounter++;
             seq.tick(tickCounter);
             WTapHandler.tick();
+            AutoFarmHandler.tick();
             AlertDispatcher.scan(client, prefs);
             AlertDispatcher.scanAfk(client, prefs);
         });
