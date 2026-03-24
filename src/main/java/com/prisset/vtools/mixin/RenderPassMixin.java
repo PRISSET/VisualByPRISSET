@@ -9,6 +9,7 @@ import net.minecraft.client.render.*;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.entity.Entity;
 import org.joml.Matrix4f;
+import org.lwjgl.opengl.GL11;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -45,9 +46,13 @@ public abstract class RenderPassMixin {
             if (!debugActive) return;
         }
 
+        GL11.glDisable(GL11.GL_DEPTH_TEST);
+
         OverlayPainter.paintAll(client, matrices, tickDelta, camera, prefs);
 
         TrailRenderer.tick(client, prefs);
         TrailRenderer.render(client, matrices, tickDelta, camera, prefs);
+
+        GL11.glEnable(GL11.GL_DEPTH_TEST);
     }
 }
