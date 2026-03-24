@@ -49,6 +49,7 @@ public class DisplayPrefs {
     private boolean tgEnabled;
     private String tgBotToken;
     private String tgChatId;
+    private boolean afkGuard;
 
     private DisplayPrefs() {
         this.active = false;
@@ -84,6 +85,7 @@ public class DisplayPrefs {
         this.tgEnabled = false;
         this.tgBotToken = "";
         this.tgChatId = "";
+        this.afkGuard = false;
     }
 
     public static DisplayPrefs defaults() {
@@ -127,6 +129,7 @@ public class DisplayPrefs {
         obj.addProperty("tge", tgEnabled);
         obj.addProperty("tgbt", tgBotToken);
         obj.addProperty("tgci", tgChatId);
+        obj.addProperty("ag", afkGuard);
         return obj;
     }
 
@@ -165,6 +168,7 @@ public class DisplayPrefs {
         if (obj.has("tge")) prefs.tgEnabled = obj.get("tge").getAsBoolean();
         if (obj.has("tgbt")) prefs.tgBotToken = obj.get("tgbt").getAsString();
         if (obj.has("tgci")) prefs.tgChatId = obj.get("tgci").getAsString();
+        if (obj.has("ag")) prefs.afkGuard = obj.get("ag").getAsBoolean();
         return prefs;
     }
 
@@ -236,6 +240,7 @@ public class DisplayPrefs {
     public boolean isTgEnabled() { return tgEnabled; }
     public String getTgBotToken() { return tgBotToken; }
     public String getTgChatId() { return tgChatId; }
+    public boolean isAfkGuard() { return afkGuard; }
     // --- Setters ---
 
     public void setActive(boolean val) { this.active = val; }
@@ -271,6 +276,7 @@ public class DisplayPrefs {
     public void setTgEnabled(boolean val) { this.tgEnabled = val; }
     public void setTgBotToken(String val) { this.tgBotToken = val != null ? val : ""; }
     public void setTgChatId(String val) { this.tgChatId = val != null ? val : ""; }
+    public void setAfkGuard(boolean val) { this.afkGuard = val; }
     // --- Utility ---
 
     private static float clamp(float val, float min, float max) {

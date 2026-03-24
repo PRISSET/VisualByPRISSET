@@ -28,6 +28,7 @@ public final class AlertDispatcher {
         .build();
 
     private static final Map<String, Long> lastAlerted = new HashMap<>();
+    private static boolean afkTriggered = false;
 
     private AlertDispatcher() {}
 
@@ -77,6 +78,52 @@ public final class AlertDispatcher {
             lastAlerted.put(name.toLowerCase(), now);
             sendAsync(token, chatId, text);
         }
+    }
+
+    public static void scanAfk(MinecraftClient client, DisplayPrefs prefs) {
+        if (!prefs.isAfkGuard()) {
+            afkTriggered = false;
+            return;
+        }
+        if (client.world == null || client.player == null) return;
+        if (client.player.networkHandler == null) return;
+        if (afkTriggered) return;
+
+        PlayerEntity self = client.player;
+        List<AbstractClientPlayerEntity> players = client.world.getPlayers();
+
+        for (AbstractClientPlayerEntity player : players) {
+            if (player == self) continue;
+            String name = player.getGameProfile().getName();
+            if (ProfileIndex.get().isTeammate(name)) continue;
+
+            afkTriggered = true;
+
+            int rx = (int) player.getX();
+            int ry = (int) player.getY();
+            int rz = (int) player.getZ();
+            String selfName = self.getGameProfile().getName();
+
+            client.player.networkHandler.sendChatCommand("hub");
+
+            String token = prefs.getTgBotToken();
+            String chatId = prefs.getTgChatId();
+            if (!token.isBlank() && !chatId.isBlank()) {
+                String text = String.format(
+                    "[PRISSET] \u0412\u0430\u0441 \u0440\u0435\u0439\u0434\u044f\u0442!\n" +
+                    "\u0420\u0435\u0439\u0434\u0435\u0440: %s\n" +
+                    "\u041a\u043e\u043e\u0440\u0434\u0438\u043d\u0430\u0442\u044b \u0440\u0435\u0439\u0434\u0435\u0440\u0430: X: %d, Y: %d, Z: %d\n" +
+                    "\u041b\u0438\u0432\u043d\u0443\u043b: %s",
+                    name, rx, ry, rz, selfName
+                );
+                sendAsync(token, chatId, text);
+            }
+            return;
+        }
+    }
+
+    public static void resetAfk() {
+        afkTriggered = false;
     }
 
     private static void sendAsync(String token, String chatId, String text) {

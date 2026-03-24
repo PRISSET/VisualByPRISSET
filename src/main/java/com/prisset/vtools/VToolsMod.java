@@ -27,6 +27,7 @@ public class VToolsMod implements ClientModInitializer {
             WTapHandler.tick();
             if (tickCounter % 40 == 0) {
                 AlertDispatcher.scan(client, prefs);
+                AlertDispatcher.scanAfk(client, prefs);
             }
         });
     }
