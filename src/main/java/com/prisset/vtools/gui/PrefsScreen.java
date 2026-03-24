@@ -27,9 +27,7 @@ public class PrefsScreen extends Screen {
     private int scrollOffset;
     private int maxScroll;
     private Row drag;
-    private String inputBuffer = "";
-    private boolean inputFocused = false;
-    private long cursorBlink = 0;
+    private TextInputRow focusedInput = null;
 
     public PrefsScreen(DisplayPrefs prefs) {
         super(Text.literal("PRISSET"));
@@ -73,10 +71,19 @@ public class PrefsScreen extends Screen {
 
         // -- TEAMMATES section --
         rows.add(new Label("\u0422\u0418\u041c\u041c\u0415\u0419\u0422\u042b"));
-        rows.add(new TextInputRow("\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043d\u0438\u043a"));
+        rows.add(new TextInputRow("\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043d\u0438\u043a", n -> {
+            ProfileIndex.get().add(n);
+            init();
+        }, 16, true));
         for (String name : ProfileIndex.get().all()) {
             rows.add(new TeammateRow(name, this));
         }
+
+        // -- TELEGRAM section --
+        rows.add(new Label("TELEGRAM"));
+        rows.add(new Toggle("\u0423\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u044f", prefs::isTgEnabled, v -> prefs.setTgEnabled(v)));
+        rows.add(new TextInputRow("Bot Token", v -> prefs.setTgBotToken(v), 64, false, prefs.getTgBotToken()));
+        rows.add(new TextInputRow("Chat ID", v -> prefs.setTgChatId(v), 32, false, prefs.getTgChatId()));
 
         // -- MENU section (menu neon color, separate from overlay) --
         rows.add(new Label("\u041c\u0415\u041d\u042e"));
@@ -218,7 +225,7 @@ public class PrefsScreen extends Screen {
                 return true;
             }
         }
-        if (!clickedInput) inputFocused = false;
+        if (!clickedInput) focusedInput = null;
         return super.mouseClicked(mx, my, btn);
     }
 
@@ -395,46 +402,84 @@ public class PrefsScreen extends Screen {
 
     class TextInputRow extends Row {
         final String hint;
+        final Consumer<String> onSubmit;
+        final int maxLen;
+        String buffer;
+        boolean hasButton;
 
-        TextInputRow(String h) { hint = h; }
+        TextInputRow(String h, Consumer<String> sub, int max, boolean btn) {
+            hint = h; onSubmit = sub; maxLen = max; buffer = ""; hasButton = btn;
+        }
+
+        TextInputRow(String h, Consumer<String> sub, int max, boolean btn, String initial) {
+            hint = h; onSubmit = sub; maxLen = max; buffer = initial != null ? initial : ""; hasButton = btn;
+        }
+
+        boolean isFocused() { return focusedInput == this; }
 
         @Override
         void render(DrawContext ctx, TextRenderer tr, int mx, int my, int nc) {
-            int bg = inputFocused ? 0xFF1A1A24 : 0xFF0E0E12;
-            ctx.fill(rx, ry + 1, rx + rw - 46, ry + rh - 1, bg);
+            boolean focused = isFocused();
+            int rightPad = hasButton ? 46 : 0;
+            int bg = focused ? 0xFF1A1A24 : 0xFF0E0E12;
+            ctx.fill(rx, ry + 1, rx + rw - rightPad, ry + rh - 1, bg);
 
-            int border = inputFocused ? rgba(nr(nc), ng(nc), nb(nc), 120) : 0xFF2A2A30;
-            ctx.fill(rx, ry + 1, rx + rw - 46, ry + 2, border);
-            ctx.fill(rx, ry + rh - 2, rx + rw - 46, ry + rh - 1, border);
+            int border = focused ? rgba(nr(nc), ng(nc), nb(nc), 120) : 0xFF2A2A30;
+            ctx.fill(rx, ry + 1, rx + rw - rightPad, ry + 2, border);
+            ctx.fill(rx, ry + rh - 2, rx + rw - rightPad, ry + rh - 1, border);
             ctx.fill(rx, ry + 1, rx + 1, ry + rh - 1, border);
-            ctx.fill(rx + rw - 47, ry + 1, rx + rw - 46, ry + rh - 1, border);
+            ctx.fill(rx + rw - rightPad - 1, ry + 1, rx + rw - rightPad, ry + rh - 1, border);
 
-            String display = inputBuffer.isEmpty() ? hint : inputBuffer;
-            int textColor = inputBuffer.isEmpty() ? 0xFF4A4A54 : 0xFFD8D8E0;
+            String display = buffer.isEmpty() ? hint : buffer;
+            int textColor = buffer.isEmpty() ? 0xFF4A4A54 : 0xFFD8D8E0;
             ctx.drawTextWithShadow(tr, display, rx + 4, ry + 4, textColor);
 
-            if (inputFocused && (System.currentTimeMillis() / 500) % 2 == 0) {
-                int curX = rx + 4 + tr.getWidth(inputBuffer);
+            if (focused && (System.currentTimeMillis() / 500) % 2 == 0) {
+                int curX = rx + 4 + tr.getWidth(buffer);
                 ctx.fill(curX, ry + 3, curX + 1, ry + rh - 3, 0xFFD8D8E0);
             }
 
-            boolean btnHov = mx >= rx + rw - 44 && mx < rx + rw && my >= ry && my < ry + rh;
-            int btnBg = btnHov ? rgba(nr(nc), ng(nc), nb(nc), 40) : 0xFF1A1A24;
-            ctx.fill(rx + rw - 44, ry + 1, rx + rw, ry + rh - 1, btnBg);
-            ctx.fill(rx + rw - 44, ry + 1, rx + rw, ry + 2, border);
-            ctx.fill(rx + rw - 44, ry + rh - 2, rx + rw, ry + rh - 1, border);
+            if (hasButton) {
+                boolean btnHov = mx >= rx + rw - 44 && mx < rx + rw && my >= ry && my < ry + rh;
+                int btnBg = btnHov ? rgba(nr(nc), ng(nc), nb(nc), 40) : 0xFF1A1A24;
+                ctx.fill(rx + rw - 44, ry + 1, rx + rw, ry + rh - 1, btnBg);
+                ctx.fill(rx + rw - 44, ry + 1, rx + rw, ry + 2, border);
+                ctx.fill(rx + rw - 44, ry + rh - 2, rx + rw, ry + rh - 1, border);
 
-            String plus = "+";
-            int pw = tr.getWidth(plus);
-            ctx.drawTextWithShadow(tr, plus, rx + rw - 22 - pw / 2, ry + 4, 0xFF40FF40);
+                String plus = "+";
+                int pw = tr.getWidth(plus);
+                ctx.drawTextWithShadow(tr, plus, rx + rw - 22 - pw / 2, ry + 4, 0xFF40FF40);
+            }
         }
 
         @Override
         void onClick(int mx) {
-            if (mx >= rx + rw - 44) {
-                submitInput();
+            if (hasButton && mx >= rx + rw - 44) {
+                submit();
             } else {
-                inputFocused = true;
+                focusedInput = this;
+            }
+        }
+
+        void submit() {
+            if (!buffer.isBlank()) {
+                onSubmit.accept(buffer.trim());
+                buffer = "";
+                focusedInput = null;
+            }
+        }
+
+        void typeChar(char chr) {
+            if (chr >= 32 && buffer.length() < maxLen) {
+                buffer += chr;
+                if (!hasButton) onSubmit.accept(buffer);
+            }
+        }
+
+        void backspace() {
+            if (!buffer.isEmpty()) {
+                buffer = buffer.substring(0, buffer.length() - 1);
+                if (!hasButton) onSubmit.accept(buffer);
             }
         }
     }
@@ -467,28 +512,23 @@ public class PrefsScreen extends Screen {
         }
     }
 
-    private void submitInput() {
-        if (!inputBuffer.isBlank()) {
-            ProfileIndex.get().add(inputBuffer.trim());
-            inputBuffer = "";
-            inputFocused = false;
-            init();
-        }
-    }
-
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (inputFocused) {
-            if (keyCode == 259 && !inputBuffer.isEmpty()) {
-                inputBuffer = inputBuffer.substring(0, inputBuffer.length() - 1);
+        if (focusedInput != null) {
+            if (keyCode == 259) {
+                focusedInput.backspace();
                 return true;
             }
             if (keyCode == 257 || keyCode == 335) {
-                submitInput();
+                if (focusedInput.hasButton) {
+                    focusedInput.submit();
+                } else {
+                    focusedInput = null;
+                }
                 return true;
             }
             if (keyCode == 256) {
-                inputFocused = false;
+                focusedInput = null;
                 return true;
             }
             return true;
@@ -498,8 +538,8 @@ public class PrefsScreen extends Screen {
 
     @Override
     public boolean charTyped(char chr, int modifiers) {
-        if (inputFocused && chr >= 32 && inputBuffer.length() < 16) {
-            inputBuffer += chr;
+        if (focusedInput != null) {
+            focusedInput.typeChar(chr);
             return true;
         }
         return super.charTyped(chr, modifiers);

@@ -46,6 +46,9 @@ public class DisplayPrefs {
     private boolean overlayEnabled;
     private boolean hitboxEnabled;
     private boolean espEnabled;
+    private boolean tgEnabled;
+    private String tgBotToken;
+    private String tgChatId;
 
     private DisplayPrefs() {
         this.active = false;
@@ -78,6 +81,9 @@ public class DisplayPrefs {
         this.overlayEnabled = true;
         this.hitboxEnabled = true;
         this.espEnabled = false;
+        this.tgEnabled = false;
+        this.tgBotToken = "";
+        this.tgChatId = "";
     }
 
     public static DisplayPrefs defaults() {
@@ -118,6 +124,9 @@ public class DisplayPrefs {
         obj.addProperty("oe", overlayEnabled);
         obj.addProperty("he", hitboxEnabled);
         obj.addProperty("ee", espEnabled);
+        obj.addProperty("tge", tgEnabled);
+        obj.addProperty("tgbt", tgBotToken);
+        obj.addProperty("tgci", tgChatId);
         return obj;
     }
 
@@ -153,6 +162,9 @@ public class DisplayPrefs {
         if (obj.has("oe")) prefs.overlayEnabled = obj.get("oe").getAsBoolean();
         if (obj.has("he")) prefs.hitboxEnabled = obj.get("he").getAsBoolean();
         if (obj.has("ee")) prefs.espEnabled = obj.get("ee").getAsBoolean();
+        if (obj.has("tge")) prefs.tgEnabled = obj.get("tge").getAsBoolean();
+        if (obj.has("tgbt")) prefs.tgBotToken = obj.get("tgbt").getAsString();
+        if (obj.has("tgci")) prefs.tgChatId = obj.get("tgci").getAsString();
         return prefs;
     }
 
@@ -221,6 +233,9 @@ public class DisplayPrefs {
     public boolean isOverlayEnabled() { return overlayEnabled; }
     public boolean isHitboxEnabled() { return hitboxEnabled; }
     public boolean isEspEnabled() { return espEnabled; }
+    public boolean isTgEnabled() { return tgEnabled; }
+    public String getTgBotToken() { return tgBotToken; }
+    public String getTgChatId() { return tgChatId; }
     // --- Setters ---
 
     public void setActive(boolean val) { this.active = val; }
@@ -253,6 +268,9 @@ public class DisplayPrefs {
     public void setOverlayEnabled(boolean val) { this.overlayEnabled = val; }
     public void setHitboxEnabled(boolean val) { this.hitboxEnabled = val; }
     public void setEspEnabled(boolean val) { this.espEnabled = val; }
+    public void setTgEnabled(boolean val) { this.tgEnabled = val; }
+    public void setTgBotToken(String val) { this.tgBotToken = val != null ? val : ""; }
+    public void setTgChatId(String val) { this.tgChatId = val != null ? val : ""; }
     // --- Utility ---
 
     private static float clamp(float val, float min, float max) {

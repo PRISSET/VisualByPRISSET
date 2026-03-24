@@ -5,6 +5,7 @@ import com.prisset.vtools.config.ProfileIndex;
 import com.prisset.vtools.gui.PrefsScreen;
 import com.prisset.vtools.input.SequenceListener;
 import com.prisset.vtools.input.WTapHandler;
+import com.prisset.vtools.notify.AlertDispatcher;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.MinecraftClient;
@@ -24,6 +25,9 @@ public class VToolsMod implements ClientModInitializer {
             tickCounter++;
             seq.tick(tickCounter);
             WTapHandler.tick();
+            if (tickCounter % 40 == 0) {
+                AlertDispatcher.scan(client, prefs);
+            }
         });
     }
 
