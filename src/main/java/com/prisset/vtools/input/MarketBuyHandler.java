@@ -26,6 +26,7 @@ public final class MarketBuyHandler {
 
     private static final Logger LOG = LoggerFactory.getLogger("prisset-vtools");
     private static final int ACTION_DELAY_TICKS = 40;
+    private static final int REFRESH_SLOT = 47;
     private static final int NEXT_PAGE_SLOT = 50;
     private static final int PREV_PAGE_SLOT = 48;
 
@@ -48,7 +49,6 @@ public final class MarketBuyHandler {
         CLICKING_ITEM,
         WAITING_CONFIRM,
         CLICKING_BUY,
-        NEXT_PAGE,
         CYCLE_DONE
     }
 
@@ -70,8 +70,7 @@ public final class MarketBuyHandler {
             case CLICKING_ITEM: return "\u041f\u043e\u043a\u0443\u043f\u043a\u0430...";
             case WAITING_CONFIRM: return "\u041e\u0436\u0438\u0434\u0430\u043d\u0438\u0435 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043d\u0438\u044f...";
             case CLICKING_BUY: return "\u041f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043d\u0438\u0435 \u043f\u043e\u043a\u0443\u043f\u043a\u0438...";
-            case NEXT_PAGE: return "\u0421\u043b\u0435\u0434\u0443\u044e\u0449\u0430\u044f \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0430...";
-            case CYCLE_DONE: return "\u0426\u0438\u043a\u043b \u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043d";
+            case CYCLE_DONE: return "\u041e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u0435...";
             default: return "";
         }
     }
@@ -115,7 +114,6 @@ public final class MarketBuyHandler {
             case CLICKING_ITEM -> tickClickingItem(mc);
             case WAITING_CONFIRM -> tickWaitingConfirm(mc);
             case CLICKING_BUY -> tickClickingBuy(mc);
-            case NEXT_PAGE -> tickNextPage(mc);
             case CYCLE_DONE -> tickCycleDone(mc);
         }
     }
@@ -154,6 +152,7 @@ public final class MarketBuyHandler {
         ScreenHandler handler = mc.player.currentScreenHandler;
         List<MarketItem> items = MarketParser.parseSlots(handler);
 
+        cachedMarketItems.clear();
         cachedMarketItems.addAll(items);
 
         for (MarketItem item : items) {
@@ -170,13 +169,8 @@ public final class MarketBuyHandler {
             }
         }
 
-        if (currentPage < totalPages) {
-            state = State.NEXT_PAGE;
-            delayCooldown = ACTION_DELAY_TICKS;
-        } else {
-            state = State.CYCLE_DONE;
-            delayCooldown = ACTION_DELAY_TICKS;
-        }
+        state = State.CYCLE_DONE;
+        delayCooldown = ACTION_DELAY_TICKS;
     }
 
     private static void tickClickingItem(MinecraftClient mc) {
@@ -247,7 +241,7 @@ public final class MarketBuyHandler {
         delayCooldown = ACTION_DELAY_TICKS;
     }
 
-    private static void tickNextPage(MinecraftClient mc) {
+    private static void tickCycleDone(MinecraftClient mc) {
         if (!isMarketScreen(mc)) {
             state = State.IDLE;
             delayCooldown = ACTION_DELAY_TICKS;
@@ -256,19 +250,11 @@ public final class MarketBuyHandler {
 
         ScreenHandler handler = mc.player.currentScreenHandler;
         mc.interactionManager.clickSlot(
-                handler.syncId, NEXT_PAGE_SLOT, 0, SlotActionType.PICKUP, mc.player);
+                handler.syncId, REFRESH_SLOT, 0, SlotActionType.PICKUP, mc.player);
 
-        currentPage++;
+        LOG.info("[AutoBuy] Refreshing market...");
         state = State.SCANNING;
-    }
-
-    private static void tickCycleDone(MinecraftClient mc) {
-        if (mc.currentScreen instanceof HandledScreen<?>) {
-            mc.player.closeHandledScreen();
-        }
-        LOG.info("[AutoBuy] Cycle complete, restarting...");
-        state = State.IDLE;
-        delayCooldown = ACTION_DELAY_TICKS * 3;
+        delayCooldown = ACTION_DELAY_TICKS;
     }
 
     private static boolean isMarketScreen(MinecraftClient mc) {

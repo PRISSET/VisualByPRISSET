@@ -31,9 +31,6 @@ public class PrefsScreen extends Screen {
     private int maxScroll;
     private Row drag;
     private TextInputRow focusedInput = null;
-    private String autoBuyItemName = "";
-    private String autoBuyPrice = "";
-    private String autoBuyQty = "";
     private String marketSearchFilter = "";
 
     public PrefsScreen(DisplayPrefs prefs) {
@@ -108,24 +105,6 @@ public class PrefsScreen extends Screen {
         rows.add(new Toggle("\u0410\u0432\u0442\u043e\u0431\u0430\u0439", prefs::isAutoBuy, v -> prefs.setAutoBuy(v)));
         rows.add(new StatusRow(() -> MarketBuyHandler.getStatusText()));
 
-        rows.add(new TextInputRow("\u041d\u0430\u0437\u0432\u0430\u043d\u0438\u0435 \u043f\u0440\u0435\u0434\u043c\u0435\u0442\u0430", v -> autoBuyItemName = v, 32, false));
-        rows.add(new TextInputRow("\u041c\u0430\u043a\u0441. \u0446\u0435\u043d\u0430 \u0437\u0430 \u0448\u0442.", v -> autoBuyPrice = v, 10, false));
-        rows.add(new TextInputRow("\u041a\u043e\u043b\u0438\u0447\u0435\u0441\u0442\u0432\u043e", v -> autoBuyQty = v, 6, false));
-        rows.add(new Button("\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043f\u0440\u0430\u0432\u0438\u043b\u043e", () -> {
-            if (autoBuyItemName.isBlank() || autoBuyPrice.isBlank() || autoBuyQty.isBlank()) return;
-            try {
-                int price = Integer.parseInt(autoBuyPrice.trim().replace(" ", ""));
-                int qty = Integer.parseInt(autoBuyQty.trim().replace(" ", ""));
-                if (price <= 0 || qty <= 0) return;
-                BuyRuleStore.get().add(new BuyRuleStore.BuyRule(
-                        autoBuyItemName.trim(), "", price, qty));
-                autoBuyItemName = "";
-                autoBuyPrice = "";
-                autoBuyQty = "";
-                init();
-            } catch (NumberFormatException ignored) {}
-        }));
-
         for (int i = 0; i < BuyRuleStore.get().all().size(); i++) {
             BuyRuleStore.BuyRule rule = BuyRuleStore.get().all().get(i);
             rows.add(new BuyRuleRow(rule, i, this));
@@ -135,24 +114,17 @@ public class PrefsScreen extends Screen {
         List<MarketParser.MarketItem> cached = MarketBuyHandler.getCachedItems();
         if (!cached.isEmpty()) {
             rows.add(new Label("\u0422\u041e\u0412\u0410\u0420\u042b \u041c\u0410\u0420\u041a\u0415\u0422\u0410"));
-            rows.add(new TextInputRow("\u041f\u043e\u0438\u0441\u043a...", v -> {
-                marketSearchFilter = v;
-                init();
-            }, 32, false));
+            rows.add(new TextInputRow("\u041f\u043e\u0438\u0441\u043a...", v -> marketSearchFilter = v, 32, false, marketSearchFilter));
             for (MarketParser.MarketItem item : cached) {
-                if (!marketSearchFilter.isBlank()) {
-                    String filter = marketSearchFilter.toLowerCase();
-                    if (!item.getDisplayName().toLowerCase().contains(filter)
-                            && !item.getItemId().toLowerCase().contains(filter)) {
-                        continue;
-                    }
-                }
-                rows.add(new MarketItemRow(item));
+                rows.add(new MarketItemRow(item, this));
             }
         }
 
         totalH = PAD + 14;
-        for (Row r : rows) totalH += r instanceof Label ? LABEL_H : ROW_H;
+        for (Row r : rows) {
+            if (r instanceof MarketItemRow mir && !mir.matchesFilter()) continue;
+            totalH += r instanceof Label ? LABEL_H : ROW_H;
+        }
         totalH += PAD;
 
         wx = (width - W) / 2;
@@ -236,6 +208,8 @@ public class PrefsScreen extends Screen {
         // Rows (scrollable)
         int y = wy + PAD + 14 - scrollOffset;
         for (Row r : rows) {
+            if (r instanceof MarketItemRow mir && !mir.matchesFilter()) continue;
+
             int rh = r instanceof Label ? LABEL_H : ROW_H;
             r.rx = wx + PAD;
             r.ry = y;
@@ -604,12 +578,15 @@ public class PrefsScreen extends Screen {
 
         @Override
         void render(DrawContext ctx, TextRenderer tr, int mx, int my, int nc) {
-            String text = rule.getDisplayName()
-                    + " \u2264" + rule.getMaxPricePerUnit() + "\u20b3"
-                    + " " + rule.getBought() + "/" + rule.getQuantity();
-
             int color = rule.isFulfilled() ? 0xFF40FF40 : (rule.isEnabled() ? 0xFFD8D8E0 : 0xFF4A4A54);
-            ctx.drawTextWithShadow(tr, text, rx + 4, ry + 4, color);
+
+            String name = rule.getDisplayName();
+            if (name.length() > 14) name = name.substring(0, 12) + "..";
+            ctx.drawTextWithShadow(tr, name, rx + 4, ry + 4, color);
+
+            String info = rule.getMaxPricePerUnit() + "\u20b3 " + rule.getBought() + "/" + rule.getQuantity();
+            int infoW = tr.getWidth(info);
+            ctx.drawTextWithShadow(tr, info, rx + rw - 48 - infoW - 2, ry + 4, 0xFF808090);
 
             boolean toggleHov = mx >= rx + rw - 48 && mx < rx + rw - 24 && my >= ry && my < ry + rh;
             int toggleBg = toggleHov ? rgba(nr(nc), ng(nc), nb(nc), 40) : 0xFF1A1A24;
@@ -635,31 +612,60 @@ public class PrefsScreen extends Screen {
             } else if (mx >= rx + rw - 48) {
                 rule.setEnabled(!rule.isEnabled());
                 BuyRuleStore.get().save();
+            } else {
+                screen.client.setScreen(new BuyRuleEditScreen(screen, rule));
             }
         }
     }
 
-    static class MarketItemRow extends Row {
-        final MarketParser.MarketItem item;
 
-        MarketItemRow(MarketParser.MarketItem i) { item = i; }
+
+    class MarketItemRow extends Row {
+        final MarketParser.MarketItem item;
+        final PrefsScreen screen;
+
+        MarketItemRow(MarketParser.MarketItem i, PrefsScreen s) { item = i; screen = s; }
+
+        boolean matchesFilter() {
+            if (screen.marketSearchFilter.isBlank()) return true;
+            String filter = screen.marketSearchFilter.toLowerCase();
+            return item.getDisplayName().toLowerCase().contains(filter)
+                    || item.getItemId().toLowerCase().contains(filter);
+        }
 
         @Override
         void render(DrawContext ctx, TextRenderer tr, int mx, int my, int nc) {
+            if (!matchesFilter()) return;
+
             String text = item.getDisplayName();
             if (item.getCount() > 1) text += " x" + item.getCount();
             text += " - " + item.getPricePerUnit() + "\u20b3/\u0448\u0442.";
 
             ctx.drawTextWithShadow(tr, text, rx + 4, ry + 4, 0xFFB0B0B8);
 
-            if (item.getSeller() != null && !item.getSeller().isEmpty()) {
-                String seller = item.getSeller();
-                int sw = tr.getWidth(seller);
-                ctx.drawTextWithShadow(tr, seller, rx + rw - sw - 4, ry + 4, 0xFF4A4A54);
+            boolean addHov = mx >= rx + rw - 24 && mx < rx + rw && my >= ry && my < ry + rh;
+            int addBg = addHov ? rgba(40, 200, 60, 60) : 0xFF1A1A24;
+            ctx.fill(rx + rw - 24, ry + 1, rx + rw, ry + rh - 1, addBg);
+            String plus = "+";
+            int pw = tr.getWidth(plus);
+            ctx.drawTextWithShadow(tr, plus, rx + rw - 12 - pw / 2, ry + 4, 0xFF40FF40);
+        }
+
+        @Override
+        void onClick(int mx) {
+            if (mx >= rx + rw - 24) {
+                BuyRuleStore.get().add(new BuyRuleStore.BuyRule(
+                        item.getDisplayName(), item.getItemId(),
+                        item.getPricePerUnit(), 1));
+                screen.init();
             }
         }
 
-        @Override boolean contains(int mx, int my) { return false; }
+        @Override
+        boolean contains(int mx, int my) {
+            if (!matchesFilter()) return false;
+            return mx >= rx && mx < rx + rw && my >= ry && my < ry + rh;
+        }
     }
 
     @Override

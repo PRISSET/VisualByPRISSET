@@ -55,6 +55,8 @@ public final class BuyRuleStore {
         public boolean isFulfilled() { return bought >= quantity; }
 
         public void setEnabled(boolean v) { this.enabled = v; }
+        public void setMaxPricePerUnit(int v) { this.maxPricePerUnit = v; }
+        public void setQuantity(int v) { this.quantity = v; }
         public void addBought(int count) { this.bought += count; }
         public void resetBought() { this.bought = 0; }
 
