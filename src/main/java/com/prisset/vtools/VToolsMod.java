@@ -1,9 +1,11 @@
 package com.prisset.vtools;
 
+import com.prisset.vtools.config.BuyRuleStore;
 import com.prisset.vtools.config.DisplayPrefs;
 import com.prisset.vtools.config.ProfileIndex;
 import com.prisset.vtools.gui.PrefsScreen;
 import com.prisset.vtools.input.AutoFarmHandler;
+import com.prisset.vtools.input.MarketBuyHandler;
 import com.prisset.vtools.input.SequenceListener;
 import com.prisset.vtools.input.WTapHandler;
 import com.prisset.vtools.notify.AlertDispatcher;
@@ -21,12 +23,14 @@ public class VToolsMod implements ClientModInitializer {
     public void onInitializeClient() {
         prefs = DisplayPrefs.load();
         ProfileIndex.get().load();
+        BuyRuleStore.get().load();
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             tickCounter++;
             seq.tick(tickCounter);
             WTapHandler.tick();
             AutoFarmHandler.tick();
+            MarketBuyHandler.tick();
             AlertDispatcher.scan(client, prefs);
             AlertDispatcher.scanAfk(client, prefs);
         });

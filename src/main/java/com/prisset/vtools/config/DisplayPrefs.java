@@ -52,6 +52,7 @@ public class DisplayPrefs {
     private boolean afkGuard;
     private boolean autoFarm;
     private boolean autoEat;
+    private boolean autoBuy;
 
     private DisplayPrefs() {
         this.active = false;
@@ -90,6 +91,7 @@ public class DisplayPrefs {
         this.afkGuard = false;
         this.autoFarm = false;
         this.autoEat = false;
+        this.autoBuy = false;
     }
 
     public static DisplayPrefs defaults() {
@@ -136,6 +138,7 @@ public class DisplayPrefs {
         obj.addProperty("ag", afkGuard);
         obj.addProperty("af", autoFarm);
         obj.addProperty("ae", autoEat);
+        obj.addProperty("ab", autoBuy);
         return obj;
     }
 
@@ -177,6 +180,7 @@ public class DisplayPrefs {
         if (obj.has("ag")) prefs.afkGuard = obj.get("ag").getAsBoolean();
         if (obj.has("af")) prefs.autoFarm = obj.get("af").getAsBoolean();
         if (obj.has("ae")) prefs.autoEat = obj.get("ae").getAsBoolean();
+        if (obj.has("ab")) prefs.autoBuy = obj.get("ab").getAsBoolean();
         return prefs;
     }
 
@@ -251,6 +255,7 @@ public class DisplayPrefs {
     public boolean isAfkGuard() { return afkGuard; }
     public boolean isAutoFarm() { return autoFarm; }
     public boolean isAutoEat() { return autoEat; }
+    public boolean isAutoBuy() { return autoBuy; }
     // --- Setters ---
 
     public void setActive(boolean val) { this.active = val; }
@@ -289,6 +294,7 @@ public class DisplayPrefs {
     public void setAfkGuard(boolean val) { this.afkGuard = val; }
     public void setAutoFarm(boolean val) { this.autoFarm = val; }
     public void setAutoEat(boolean val) { this.autoEat = val; }
+    public void setAutoBuy(boolean val) { this.autoBuy = val; }
     // --- Utility ---
 
     private static float clamp(float val, float min, float max) {
