@@ -22,10 +22,12 @@ import java.util.concurrent.ThreadLocalRandom;
 public final class InstantKillHandler {
 
     private static final double MAX_RANGE = 3.5;
-    private static final float TURN_SPEED = 45.0f;
-    private static final float AIM_THRESHOLD = 4.0f;
-    private static final int RETURN_DELAY_MIN = 1;
-    private static final int RETURN_DELAY_MAX = 3;
+    private static final float TURN_SPEED_MIN = 8.0f;
+    private static final float TURN_SPEED_MAX = 16.0f;
+    private static final float AIM_THRESHOLD = 3.5f;
+    private static final int RETURN_DELAY_MIN = 2;
+    private static final int RETURN_DELAY_MAX = 5;
+    private static final float RETURN_SPEED_MULT = 0.7f;
 
     private static int swapCooldown = 0;
 
@@ -99,9 +101,13 @@ public final class InstantKillHandler {
         float targetYaw = aim[0];
         float targetPitch = aim[1];
 
-        float speed = jitteredSpeed();
+        float remaining = Math.abs(wrapDegrees(targetYaw - self.getYaw()));
+        float speed = adaptiveSpeed(remaining);
         float newYaw = smoothRotate(self.getYaw(), targetYaw, speed);
-        float newPitch = smoothRotate(self.getPitch(), targetPitch, speed * 0.8f);
+        float newPitch = smoothRotate(self.getPitch(), targetPitch, speed * 0.6f);
+
+        newYaw += (ThreadLocalRandom.current().nextFloat() - 0.5f) * 1.5f;
+        newPitch += (ThreadLocalRandom.current().nextFloat() - 0.5f) * 0.8f;
 
         self.setYaw(newYaw);
         self.setPitch(MathHelper.clamp(newPitch, -90f, 90f));
@@ -125,9 +131,13 @@ public final class InstantKillHandler {
     }
 
     private static void tickTurnBack(MinecraftClient mc, ClientPlayerEntity self) {
-        float speed = jitteredSpeed();
+        float remaining = Math.abs(wrapDegrees(returnYaw - self.getYaw()));
+        float speed = adaptiveSpeed(remaining) * RETURN_SPEED_MULT;
         float newYaw = smoothRotate(self.getYaw(), returnYaw, speed);
-        float newPitch = smoothRotate(self.getPitch(), returnPitch, speed * 0.8f);
+        float newPitch = smoothRotate(self.getPitch(), returnPitch, speed * 0.6f);
+
+        newYaw += (ThreadLocalRandom.current().nextFloat() - 0.5f) * 1.2f;
+        newPitch += (ThreadLocalRandom.current().nextFloat() - 0.5f) * 0.6f;
 
         self.setYaw(newYaw);
         self.setPitch(MathHelper.clamp(newPitch, -90f, 90f));
@@ -135,7 +145,7 @@ public final class InstantKillHandler {
         float yawDiff = Math.abs(wrapDegrees(newYaw - returnYaw));
         float pitchDiff = Math.abs(newPitch - returnPitch);
 
-        if (yawDiff < 1.0f && pitchDiff < 1.0f) {
+        if (yawDiff < 2.0f && pitchDiff < 2.0f) {
             self.setYaw(returnYaw);
             self.setPitch(returnPitch);
             reset();
@@ -177,10 +187,11 @@ public final class InstantKillHandler {
         return deg;
     }
 
-    private static float jitteredSpeed() {
-        float base = TURN_SPEED;
-        float jitter = (ThreadLocalRandom.current().nextFloat() - 0.5f) * 12f;
-        return base + jitter;
+    private static float adaptiveSpeed(float remainingDeg) {
+        float t = MathHelper.clamp(remainingDeg / 90f, 0f, 1f);
+        float base = MathHelper.lerp(t, TURN_SPEED_MIN * 0.5f, TURN_SPEED_MAX);
+        float jitter = (ThreadLocalRandom.current().nextFloat() - 0.5f) * 4f;
+        return Math.max(2f, base + jitter);
     }
 
     private static AbstractClientPlayerEntity resolveTarget(MinecraftClient mc) {
