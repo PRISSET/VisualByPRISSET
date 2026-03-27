@@ -39,7 +39,7 @@ public class VToolsMod implements ClientModInitializer {
         if (client == null) return;
 
         if (client.currentScreen == null) {
-            if (prefs != null && keyCode == prefs.getInstantKillKey()) {
+            if (prefs != null && prefs.getInstantKillKey() >= 0 && keyCode == prefs.getInstantKillKey()) {
                 InstantKillHandler.execute();
             }
         }
@@ -49,6 +49,17 @@ public class VToolsMod implements ClientModInitializer {
         if (seq.onKey(keyCode, tickCounter)) {
             seq.reset();
             client.setScreen(new PrefsScreen(prefs));
+        }
+    }
+
+    public static void onMousePress(int button) {
+        MinecraftClient client = MinecraftClient.getInstance();
+        if (client == null) return;
+        if (client.currentScreen != null) return;
+
+        int encoded = -(button + 1);
+        if (prefs != null && prefs.getInstantKillKey() < 0 && encoded == prefs.getInstantKillKey()) {
+            InstantKillHandler.execute();
         }
     }
 

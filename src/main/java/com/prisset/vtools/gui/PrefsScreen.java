@@ -202,6 +202,15 @@ public class PrefsScreen extends Screen {
     private static int rgba(int r, int g, int b, int a) { return (a << 24) | (r << 16) | (g << 8) | b; }
 
     static String keyName(int keyCode) {
+        if (keyCode < 0) {
+            int btn = -(keyCode + 1);
+            return switch (btn) {
+                case 0 -> "LMB";
+                case 1 -> "RMB";
+                case 2 -> "MMB";
+                default -> "MOUSE" + (btn + 1);
+            };
+        }
         String mapped = KEY_NAMES.get(String.valueOf(keyCode));
         if (mapped != null) return mapped;
         if (keyCode >= 65 && keyCode <= 90) return String.valueOf((char) keyCode);
@@ -288,11 +297,14 @@ public class PrefsScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mx, double my, int btn) {
-        if (btn != 0) return super.mouseClicked(mx, my, btn);
         if (activeKeyBind != null) {
+            int encoded = -(btn + 1);
+            activeKeyBind.set.accept(encoded);
+            prefs.save();
             activeKeyBind = null;
             return true;
         }
+        if (btn != 0) return super.mouseClicked(mx, my, btn);
         boolean clickedInput = false;
         int visibleH = Math.min(totalH, height - 20);
         for (Row r : rows) {
