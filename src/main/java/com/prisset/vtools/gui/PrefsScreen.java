@@ -119,8 +119,6 @@ public class PrefsScreen extends Screen {
         String key = "combat";
         rows.add(new SectionLabel("\u0411\u041e\u0419", key));
         if (!isCollapsed(key)) {
-            rows.add(new Toggle("\u0418\u043d\u0441\u0442\u0430\u043d\u0442 \u043a\u0438\u043b\u043b", prefs::isInstantKill, v -> prefs.setInstantKill(v)));
-            rows.add(new KeyBindRow("\u041a\u043b\u0430\u0432\u0438\u0448\u0430", prefs::getInstantKillKey, v -> prefs.setInstantKillKey(v)));
             rows.add(new Toggle("\u0410\u0432\u0442\u043e\u0444\u0430\u0440\u043c", prefs::isAutoFarm, v -> prefs.setAutoFarm(v)));
             rows.add(new Toggle("\u0410\u0432\u0442\u043e\u0435\u0434\u0430", prefs::isAutoEat, v -> prefs.setAutoEat(v)));
             rows.add(new Toggle("W \u0430\u0432\u0442\u043e\u043c\u0430\u0442", prefs::isWTap, v -> prefs.setWTap(v)));

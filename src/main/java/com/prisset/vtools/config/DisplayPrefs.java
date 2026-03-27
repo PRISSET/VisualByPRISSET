@@ -52,8 +52,6 @@ public class DisplayPrefs {
     private boolean afkGuard;
     private boolean autoFarm;
     private boolean autoEat;
-    private boolean instantKill;
-    private int instantKillKey;
 
     private DisplayPrefs() {
         this.active = false;
@@ -92,8 +90,6 @@ public class DisplayPrefs {
         this.afkGuard = false;
         this.autoFarm = false;
         this.autoEat = false;
-        this.instantKill = false;
-        this.instantKillKey = 82;
     }
 
     public static DisplayPrefs defaults() {
@@ -140,8 +136,6 @@ public class DisplayPrefs {
         obj.addProperty("ag", afkGuard);
         obj.addProperty("af", autoFarm);
         obj.addProperty("ae", autoEat);
-        obj.addProperty("ik", instantKill);
-        obj.addProperty("ikk", instantKillKey);
         return obj;
     }
 
@@ -183,8 +177,6 @@ public class DisplayPrefs {
         if (obj.has("ag")) prefs.afkGuard = obj.get("ag").getAsBoolean();
         if (obj.has("af")) prefs.autoFarm = obj.get("af").getAsBoolean();
         if (obj.has("ae")) prefs.autoEat = obj.get("ae").getAsBoolean();
-        if (obj.has("ik")) prefs.instantKill = obj.get("ik").getAsBoolean();
-        if (obj.has("ikk")) prefs.instantKillKey = obj.get("ikk").getAsInt();
         return prefs;
     }
 
@@ -259,8 +251,7 @@ public class DisplayPrefs {
     public boolean isAfkGuard() { return afkGuard; }
     public boolean isAutoFarm() { return autoFarm; }
     public boolean isAutoEat() { return autoEat; }
-    public boolean isInstantKill() { return instantKill; }
-    public int getInstantKillKey() { return instantKillKey; }
+
     // --- Setters ---
 
     public void setActive(boolean val) { this.active = val; }
@@ -299,8 +290,7 @@ public class DisplayPrefs {
     public void setAfkGuard(boolean val) { this.afkGuard = val; }
     public void setAutoFarm(boolean val) { this.autoFarm = val; }
     public void setAutoEat(boolean val) { this.autoEat = val; }
-    public void setInstantKill(boolean val) { this.instantKill = val; }
-    public void setInstantKillKey(int val) { this.instantKillKey = val; }
+
     // --- Utility ---
 
     private static float clamp(float val, float min, float max) {

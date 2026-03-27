@@ -4,7 +4,6 @@ import com.prisset.vtools.config.DisplayPrefs;
 import com.prisset.vtools.config.ProfileIndex;
 import com.prisset.vtools.gui.PrefsScreen;
 import com.prisset.vtools.input.AutoFarmHandler;
-import com.prisset.vtools.input.InstantKillHandler;
 import com.prisset.vtools.input.SequenceListener;
 import com.prisset.vtools.input.WTapHandler;
 import com.prisset.vtools.notify.AlertDispatcher;
@@ -28,7 +27,6 @@ public class VToolsMod implements ClientModInitializer {
             seq.tick(tickCounter);
             WTapHandler.tick();
             AutoFarmHandler.tick();
-            InstantKillHandler.tick();
             AlertDispatcher.scan(client, prefs);
             AlertDispatcher.scanAfk(client, prefs);
         });
@@ -37,29 +35,11 @@ public class VToolsMod implements ClientModInitializer {
     public static void onKeyPress(int keyCode) {
         MinecraftClient client = MinecraftClient.getInstance();
         if (client == null) return;
-
-        if (client.currentScreen == null) {
-            if (prefs != null && prefs.getInstantKillKey() >= 0 && keyCode == prefs.getInstantKillKey()) {
-                InstantKillHandler.execute();
-            }
-        }
-
         if (client.currentScreen != null) return;
 
         if (seq.onKey(keyCode, tickCounter)) {
             seq.reset();
             client.setScreen(new PrefsScreen(prefs));
-        }
-    }
-
-    public static void onMousePress(int button) {
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client == null) return;
-        if (client.currentScreen != null) return;
-
-        int encoded = -(button + 1);
-        if (prefs != null && prefs.getInstantKillKey() < 0 && encoded == prefs.getInstantKillKey()) {
-            InstantKillHandler.execute();
         }
     }
 

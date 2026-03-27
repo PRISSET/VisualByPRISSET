@@ -10,8 +10,7 @@
     "BobViewMixin",
     "WTapMixin",
     "VisualHintMixin",
-    "ScreenKeyMixin",
-    "MouseMixin"
+    "ScreenKeyMixin"
   ],
   "injectors": {
     "defaultRequire": 1
