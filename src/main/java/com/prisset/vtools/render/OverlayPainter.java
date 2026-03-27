@@ -3,6 +3,7 @@ package com.prisset.vtools.render;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.prisset.vtools.config.DisplayPrefs;
 import com.prisset.vtools.config.ProfileIndex;
+import com.prisset.vtools.input.PlayerTargetHandler;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.render.*;
@@ -61,7 +62,12 @@ public final class OverlayPainter {
         boolean isTeammate = (entity instanceof PlayerEntity player)
             && ProfileIndex.get().isTeammate(player.getGameProfile().getName());
 
-        if (isTeammate) {
+        boolean isTarget = (entity instanceof PlayerEntity pe)
+            && pe.getGameProfile().getName().equals(PlayerTargetHandler.getTargetName());
+
+        if (isTarget) {
+            r = 1f; g = 0.5f; b = 0f;
+        } else if (isTeammate) {
             r = 0f; g = 1f; b = 0f;
         } else if (prefs.isRgbMode()) {
             float entityOffset = (entity.getId() * 0.12f) % 1.0f;

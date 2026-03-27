@@ -53,6 +53,9 @@ public class DisplayPrefs {
     private boolean autoFarm;
     private boolean autoEat;
 
+    private boolean targetEnabled;
+    private boolean chestSearchEnabled;
+
     private DisplayPrefs() {
         this.active = false;
         this.debugOnly = true;
@@ -90,6 +93,8 @@ public class DisplayPrefs {
         this.afkGuard = false;
         this.autoFarm = false;
         this.autoEat = false;
+        this.targetEnabled = true;
+        this.chestSearchEnabled = true;
     }
 
     public static DisplayPrefs defaults() {
@@ -136,6 +141,8 @@ public class DisplayPrefs {
         obj.addProperty("ag", afkGuard);
         obj.addProperty("af", autoFarm);
         obj.addProperty("ae", autoEat);
+        obj.addProperty("tge2", targetEnabled);
+        obj.addProperty("cse", chestSearchEnabled);
         return obj;
     }
 
@@ -177,6 +184,8 @@ public class DisplayPrefs {
         if (obj.has("ag")) prefs.afkGuard = obj.get("ag").getAsBoolean();
         if (obj.has("af")) prefs.autoFarm = obj.get("af").getAsBoolean();
         if (obj.has("ae")) prefs.autoEat = obj.get("ae").getAsBoolean();
+        if (obj.has("tge2")) prefs.targetEnabled = obj.get("tge2").getAsBoolean();
+        if (obj.has("cse")) prefs.chestSearchEnabled = obj.get("cse").getAsBoolean();
         return prefs;
     }
 
@@ -251,6 +260,8 @@ public class DisplayPrefs {
     public boolean isAfkGuard() { return afkGuard; }
     public boolean isAutoFarm() { return autoFarm; }
     public boolean isAutoEat() { return autoEat; }
+    public boolean isTargetEnabled() { return targetEnabled; }
+    public boolean isChestSearchEnabled() { return chestSearchEnabled; }
 
     // --- Setters ---
 
@@ -290,6 +301,8 @@ public class DisplayPrefs {
     public void setAfkGuard(boolean val) { this.afkGuard = val; }
     public void setAutoFarm(boolean val) { this.autoFarm = val; }
     public void setAutoEat(boolean val) { this.autoEat = val; }
+    public void setTargetEnabled(boolean val) { this.targetEnabled = val; }
+    public void setChestSearchEnabled(boolean val) { this.chestSearchEnabled = val; }
 
     // --- Utility ---
 

@@ -2,6 +2,7 @@ package com.prisset.vtools.gui;
 
 import com.prisset.vtools.config.DisplayPrefs;
 import com.prisset.vtools.config.ProfileIndex;
+import com.prisset.vtools.input.PlayerTargetHandler;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.font.TextRenderer;
@@ -68,6 +69,8 @@ public class PrefsScreen extends Screen {
         buildColor();
         buildEffects();
         buildCombat();
+        buildTarget();
+        buildSearch();
         buildTeammates();
         buildTelegram();
         buildMenu();
@@ -123,6 +126,30 @@ public class PrefsScreen extends Screen {
             rows.add(new Toggle("\u0410\u0432\u0442\u043e\u0435\u0434\u0430", prefs::isAutoEat, v -> prefs.setAutoEat(v)));
             rows.add(new Toggle("W \u0430\u0432\u0442\u043e\u043c\u0430\u0442", prefs::isWTap, v -> prefs.setWTap(v)));
             rows.add(new Toggle("AFK \u0437\u0430\u0449\u0438\u0442\u0430", prefs::isAfkGuard, v -> prefs.setAfkGuard(v)));
+        }
+    }
+
+    private void buildTarget() {
+        String key = "target";
+        rows.add(new SectionLabel("\u0426\u0415\u041b\u042c", key));
+        if (!isCollapsed(key)) {
+            rows.add(new Toggle("\u041e\u0442\u0441\u043b\u0435\u0436\u0438\u0432\u0430\u043d\u0438\u0435", prefs::isTargetEnabled, v -> prefs.setTargetEnabled(v)));
+
+            String targetName = PlayerTargetHandler.getTargetName();
+            if (targetName != null) {
+                rows.add(new Toggle("\u0421\u0431\u0440\u043e\u0441: " + targetName, () -> true, v -> {
+                    PlayerTargetHandler.clearTarget();
+                    init();
+                }));
+            }
+        }
+    }
+
+    private void buildSearch() {
+        String key = "search";
+        rows.add(new SectionLabel("\u041f\u041e\u0418\u0421\u041a", key));
+        if (!isCollapsed(key)) {
+            rows.add(new Toggle("\u041f\u043e\u0438\u0441\u043a \u0432 \u0441\u0443\u043d\u0434\u0443\u043a\u0430\u0445", prefs::isChestSearchEnabled, v -> prefs.setChestSearchEnabled(v)));
         }
     }
 

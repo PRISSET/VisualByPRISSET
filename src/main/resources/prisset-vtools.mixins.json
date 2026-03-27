@@ -10,7 +10,10 @@
     "BobViewMixin",
     "WTapMixin",
     "VisualHintMixin",
-    "ScreenKeyMixin"
+    "ScreenKeyMixin",
+    "TargetMouseMixin",
+    "HudOverlayMixin",
+    "ContainerSearchMixin"
   ],
   "injectors": {
     "defaultRequire": 1
