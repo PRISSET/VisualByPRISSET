@@ -3,120 +3,174 @@ package com.prisset.vtools.render;
 import com.prisset.vtools.VToolsMod;
 import com.prisset.vtools.config.DisplayPrefs;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.ingame.HandledScreen;
-import net.minecraft.item.ItemStack;
+import net.minecraft.client.network.ClientPlayerEntity;
+import net.minecraft.client.network.ClientPlayerInteractionManager;
+import net.minecraft.item.*;
+import net.minecraft.screen.GenericContainerScreenHandler;
 import net.minecraft.screen.ScreenHandler;
 import net.minecraft.screen.slot.Slot;
-import org.lwjgl.glfw.GLFW;
+import net.minecraft.screen.slot.SlotActionType;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 
 public final class ChestSearchOverlay {
 
-    private static String query = "";
-    private static boolean active = false;
+    private static boolean sorting = false;
+    private static final List<int[]> pendingSwaps = new ArrayList<>();
+    private static int swapDelay = 0;
 
     private ChestSearchOverlay() {}
 
     public static void onScreenOpen() {
-        query = "";
-        active = false;
+        sorting = false;
+        pendingSwaps.clear();
+        swapDelay = 0;
     }
 
     public static void onScreenClose() {
-        query = "";
-        active = false;
+        sorting = false;
+        pendingSwaps.clear();
+        swapDelay = 0;
     }
 
     public static boolean onKeyPressed(int keyCode, int scanCode, int modifiers) {
         DisplayPrefs prefs = VToolsMod.getPrefs();
         if (prefs == null || !prefs.isChestSearchEnabled()) return false;
 
-        if (keyCode == GLFW.GLFW_KEY_BACKSPACE && active) {
-            if (!query.isEmpty()) {
-                query = query.substring(0, query.length() - 1);
-            }
-            if (query.isEmpty()) active = false;
-            return true;
-        }
-
-        if (keyCode == GLFW.GLFW_KEY_ESCAPE && active) {
-            query = "";
-            active = false;
-            return true;
-        }
-
-        String keyName = GLFW.glfwGetKeyName(keyCode, scanCode);
-        if (keyName != null && !keyName.isEmpty()) {
-            char ch = keyName.charAt(0);
-            if (ch >= 32 && ch < 127) {
-                boolean shift = (modifiers & GLFW.GLFW_MOD_SHIFT) != 0;
-                if (shift && ch >= 'a' && ch <= 'z') {
-                    ch = (char) (ch - 32);
-                }
-                query += ch;
-                active = true;
-                return true;
-            }
-        }
-
-        if (keyCode == GLFW.GLFW_KEY_SPACE) {
-            query += ' ';
-            active = true;
+        if (keyCode == 82 || keyCode == 344) {
+            triggerSort();
             return true;
         }
 
         return false;
     }
 
-    public static boolean isActive() {
-        return active && !query.isEmpty();
-    }
+    public static void tick() {
+        if (!sorting || pendingSwaps.isEmpty()) return;
 
-    public static void render(DrawContext ctx, HandledScreen<?> screen,
-                               int guiLeft, int guiTop) {
-        DisplayPrefs prefs = VToolsMod.getPrefs();
-        if (prefs == null || !prefs.isChestSearchEnabled()) return;
-        if (!isActive()) return;
-
-        MinecraftClient mc = MinecraftClient.getInstance();
-        TextRenderer tr = mc.textRenderer;
-
-        String lowerQuery = query.toLowerCase();
-
-        ScreenHandler handler = screen.getScreenHandler();
-        for (Slot slot : handler.slots) {
-            ItemStack stack = slot.getStack();
-            if (stack.isEmpty()) continue;
-
-            String itemName = stack.getName().getString().toLowerCase();
-            boolean matches = itemName.contains(lowerQuery);
-
-            int slotX = guiLeft + slot.x;
-            int slotY = guiTop + slot.y;
-
-            if (matches) {
-                ctx.fill(slotX, slotY, slotX + 16, slotY + 1, 0xFFFF8800);
-                ctx.fill(slotX, slotY + 15, slotX + 16, slotY + 16, 0xFFFF8800);
-                ctx.fill(slotX, slotY, slotX + 1, slotY + 16, 0xFFFF8800);
-                ctx.fill(slotX + 15, slotY, slotX + 16, slotY + 16, 0xFFFF8800);
-            } else {
-                ctx.fill(slotX, slotY, slotX + 16, slotY + 16, 0xC0000000);
-            }
+        if (swapDelay > 0) {
+            swapDelay--;
+            return;
         }
 
-        int screenW = mc.getWindow().getScaledWidth();
-        String display = "> " + query;
-        if ((System.currentTimeMillis() / 500) % 2 == 0) display += "_";
-        int tw = tr.getWidth(display);
-        int bx = screenW / 2 - tw / 2 - 4;
-        int by = guiTop - 16;
-        ctx.fill(bx, by, bx + tw + 8, by + 12, 0xCC000000);
-        ctx.fill(bx, by, bx + tw + 8, by + 1, 0xFFFF8800);
-        ctx.drawTextWithShadow(tr, display, bx + 4, by + 2, 0xFFFFAA00);
+        MinecraftClient mc = MinecraftClient.getInstance();
+        if (mc.player == null || mc.interactionManager == null) {
+            pendingSwaps.clear();
+            sorting = false;
+            return;
+        }
+
+        if (!(mc.player.currentScreenHandler instanceof GenericContainerScreenHandler)) {
+            pendingSwaps.clear();
+            sorting = false;
+            return;
+        }
+
+        int[] swap = pendingSwaps.remove(0);
+        executeSwap(mc, swap[0], swap[1]);
+        swapDelay = 2;
+
+        if (pendingSwaps.isEmpty()) {
+            sorting = false;
+        }
     }
 
-    public static String getQuery() {
-        return query;
+    private static void triggerSort() {
+        MinecraftClient mc = MinecraftClient.getInstance();
+        if (mc.player == null || mc.interactionManager == null) return;
+
+        ScreenHandler handler = mc.player.currentScreenHandler;
+        if (!(handler instanceof GenericContainerScreenHandler container)) return;
+
+        int containerSlots = container.getRows() * 9;
+
+        List<SlotEntry> entries = new ArrayList<>();
+        for (int i = 0; i < containerSlots; i++) {
+            Slot slot = handler.getSlot(i);
+            ItemStack stack = slot.getStack();
+            if (stack.isEmpty()) continue;
+            entries.add(new SlotEntry(i, stack));
+        }
+
+        entries.sort(Comparator.comparingInt((SlotEntry e) -> category(e.stack))
+                .thenComparing(e -> e.stack.getName().getString())
+                .thenComparing(e -> -e.stack.getCount()));
+
+        pendingSwaps.clear();
+
+        int targetIdx = 0;
+        boolean[] placed = new boolean[containerSlots];
+        int[] mapping = new int[containerSlots];
+        for (int i = 0; i < containerSlots; i++) mapping[i] = i;
+
+        for (SlotEntry entry : entries) {
+            while (targetIdx < containerSlots && placed[targetIdx]) targetIdx++;
+            if (targetIdx >= containerSlots) break;
+
+            int currentSlot = findCurrent(mapping, entry.originalSlot);
+            if (currentSlot != targetIdx) {
+                pendingSwaps.add(new int[]{currentSlot, targetIdx});
+                int tmp = mapping[currentSlot];
+                mapping[currentSlot] = mapping[targetIdx];
+                mapping[targetIdx] = tmp;
+            }
+            placed[targetIdx] = true;
+            targetIdx++;
+        }
+
+        sorting = !pendingSwaps.isEmpty();
+        swapDelay = 1;
+    }
+
+    private static int findCurrent(int[] mapping, int originalSlot) {
+        for (int i = 0; i < mapping.length; i++) {
+            if (mapping[i] == originalSlot) return i;
+        }
+        return originalSlot;
+    }
+
+    private static void executeSwap(MinecraftClient mc, int from, int to) {
+        ClientPlayerEntity player = mc.player;
+        ClientPlayerInteractionManager im = mc.interactionManager;
+        int syncId = player.currentScreenHandler.syncId;
+
+        im.clickSlot(syncId, from, 0, SlotActionType.PICKUP, player);
+        im.clickSlot(syncId, to, 0, SlotActionType.PICKUP, player);
+        im.clickSlot(syncId, from, 0, SlotActionType.PICKUP, player);
+    }
+
+    private static int category(ItemStack stack) {
+        Item item = stack.getItem();
+        if (item instanceof SwordItem) return 0;
+        if (item instanceof AxeItem) return 1;
+        if (item instanceof PickaxeItem) return 2;
+        if (item instanceof ShovelItem) return 3;
+        if (item instanceof HoeItem) return 4;
+        if (item instanceof BowItem || item instanceof CrossbowItem) return 5;
+        if (item instanceof ArmorItem) {
+            ArmorItem armor = (ArmorItem) item;
+            return 10 + armor.getSlotType().ordinal();
+        }
+        if (item instanceof ShieldItem) return 15;
+        if (item.isFood()) return 20;
+        if (item instanceof BlockItem) return 30;
+        if (item instanceof ToolItem) return 6;
+        return 50;
+    }
+
+    public static boolean isSorting() {
+        return sorting;
+    }
+
+    private static class SlotEntry {
+        final int originalSlot;
+        final ItemStack stack;
+
+        SlotEntry(int slot, ItemStack stack) {
+            this.originalSlot = slot;
+            this.stack = stack.copy();
+        }
     }
 }

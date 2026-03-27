@@ -5,7 +5,6 @@ import com.prisset.vtools.input.PlayerTargetHandler;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.util.math.Vec3d;
 
@@ -13,7 +12,6 @@ public final class TargetArrowRenderer {
 
     private static final int ARROW_SIZE = 12;
     private static final int EDGE_PAD = 30;
-    private static final String ARROW_CHAR = "\u25b6";
 
     private TargetArrowRenderer() {}
 
@@ -32,51 +30,90 @@ public final class TargetArrowRenderer {
         int screenW = mc.getWindow().getScaledWidth();
         int screenH = mc.getWindow().getScaledHeight();
 
-        Vec3d playerPos = mc.player.getPos();
-        Vec3d targetPos = target.getPos();
-        double dx = targetPos.x - playerPos.x;
-        double dz = targetPos.z - playerPos.z;
-        double dist = Math.sqrt(dx * dx + dz * dz);
+        Vec3d eyePos = mc.player.getCameraPosVec(mc.getTickDelta());
+        Vec3d targetCenter = target.getPos().add(0, target.getHeight() / 2.0, 0);
+        Vec3d toTarget = targetCenter.subtract(eyePos);
+        double dist = toTarget.length();
 
-        float playerYaw = mc.player.getYaw();
-        double angleToTarget = Math.toDegrees(Math.atan2(-dx, dz));
-        double relAngle = normalizeAngle(angleToTarget - playerYaw);
+        double yawRad = Math.toRadians(mc.player.getYaw());
+        double pitchRad = Math.toRadians(mc.player.getPitch());
 
-        float pitch = mc.player.getPitch();
-        double dy = targetPos.y - playerPos.y;
-        double vertAngle = Math.toDegrees(Math.atan2(dy, Math.max(dist, 0.1)));
-        double relVertAngle = normalizeAngle(vertAngle + pitch);
+        double cosYaw = Math.cos(yawRad);
+        double sinYaw = Math.sin(yawRad);
+        double cosPitch = Math.cos(pitchRad);
+        double sinPitch = Math.sin(pitchRad);
 
-        double screenAngle = Math.toRadians(relAngle);
-        double dirX = Math.sin(screenAngle);
-        double dirY = -Math.sin(Math.toRadians(relVertAngle));
+        double fwdX = -sinYaw * cosPitch;
+        double fwdY = -sinPitch;
+        double fwdZ = cosYaw * cosPitch;
 
-        double len = Math.sqrt(dirX * dirX + dirY * dirY);
-        if (len < 0.001) {
-            renderTargetInfo(ctx, mc, target, dist, screenW / 2, screenH / 2 - 40);
-            return;
+        double rightX = cosYaw;
+        double rightY = 0;
+        double rightZ = sinYaw;
+
+        double upX = sinYaw * sinPitch;
+        double upY = -cosPitch;
+        double upZ = -cosYaw * sinPitch;
+
+        double dotFwd = toTarget.x * fwdX + toTarget.y * fwdY + toTarget.z * fwdZ;
+        double dotRight = toTarget.x * rightX + toTarget.y * rightY + toTarget.z * rightZ;
+        double dotUp = toTarget.x * upX + toTarget.y * upY + toTarget.z * upZ;
+
+        double fov = Math.toRadians(mc.options.getFov().getValue());
+        double aspect = (double) screenW / screenH;
+
+        double halfH = Math.tan(fov / 2.0);
+        double halfW = halfH * aspect;
+
+        if (dotFwd > 0.1) {
+            double sx = (dotRight / dotFwd) / halfW;
+            double sy = (dotUp / dotFwd) / halfH;
+
+            double px = screenW / 2.0 + sx * screenW / 2.0;
+            double py = screenH / 2.0 + sy * screenH / 2.0;
+
+            if (px >= 0 && px < screenW && py >= 0 && py < screenH) {
+                renderTargetInfo(ctx, mc, target, dist, (int) px, (int) py - 20);
+                return;
+            }
         }
-        dirX /= len;
-        dirY /= len;
+
+        double screenX, screenY;
+        if (dotFwd <= 0.1) {
+            screenX = -dotRight;
+            screenY = -dotUp;
+        } else {
+            screenX = dotRight / dotFwd;
+            screenY = dotUp / dotFwd;
+        }
+
+        double len = Math.sqrt(screenX * screenX + screenY * screenY);
+        if (len < 0.001) {
+            screenX = 0;
+            screenY = -1;
+            len = 1;
+        }
+        double dirX = screenX / len;
+        double dirY = screenY / len;
 
         double cx = screenW / 2.0;
         double cy = screenH / 2.0;
-        double halfW = cx - EDGE_PAD;
-        double halfH = cy - EDGE_PAD;
+        double padW = cx - EDGE_PAD;
+        double padH = cy - EDGE_PAD;
 
         double tX, tY;
-        if (Math.abs(dirX) * halfH > Math.abs(dirY) * halfW) {
-            double scale = halfW / Math.abs(dirX);
+        if (Math.abs(dirX) * padH > Math.abs(dirY) * padW) {
+            double scale = padW / Math.abs(dirX);
             tX = cx + dirX * scale;
             tY = cy + dirY * scale;
         } else {
-            double scale = halfH / Math.abs(dirY);
+            double scale = padH / Math.abs(dirY);
             tX = cx + dirX * scale;
             tY = cy + dirY * scale;
         }
 
-        tY = Math.max(EDGE_PAD, Math.min(screenH - EDGE_PAD, tY));
         tX = Math.max(EDGE_PAD, Math.min(screenW - EDGE_PAD, tX));
+        tY = Math.max(EDGE_PAD, Math.min(screenH - EDGE_PAD, tY));
 
         int arrowColor = accentColor(prefs);
         double arrowAngle = Math.atan2(dirY, dirX);
@@ -104,9 +141,10 @@ public final class TargetArrowRenderer {
         String info = name + " \u00a7c" + String.format("%.0f", hp) + "\u2764 \u00a7f" + (int) dist + "m";
         int tw = tr.getWidth(info);
 
-        int textX = Math.max(2, Math.min(mc.getWindow().getScaledWidth() - tw - 2, x - tw / 2));
-        int textY = y + ARROW_SIZE + 4;
+        int screenW = mc.getWindow().getScaledWidth();
         int screenH = mc.getWindow().getScaledHeight();
+        int textX = Math.max(2, Math.min(screenW - tw - 2, x - tw / 2));
+        int textY = y + ARROW_SIZE + 4;
         if (textY + 10 > screenH) textY = y - ARROW_SIZE - 14;
 
         ctx.fill(textX - 2, textY - 1, textX + tw + 2, textY + 10, 0xAA000000);
@@ -167,13 +205,6 @@ public final class TargetArrowRenderer {
         if ((y < Math.min(y1, y2)) || (y > Math.max(y1, y2))) return Integer.MIN_VALUE;
         if (y1 == y2) return Math.min(x1, x2);
         return x1 + (x2 - x1) * (y - y1) / (y2 - y1);
-    }
-
-    private static double normalizeAngle(double angle) {
-        angle = angle % 360;
-        if (angle > 180) angle -= 360;
-        if (angle < -180) angle += 360;
-        return angle;
     }
 
     private static int accentColor(DisplayPrefs prefs) {

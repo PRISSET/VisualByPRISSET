@@ -6,6 +6,7 @@ import com.prisset.vtools.gui.PrefsScreen;
 import com.prisset.vtools.input.AutoFarmHandler;
 import com.prisset.vtools.input.SequenceListener;
 import com.prisset.vtools.input.WTapHandler;
+import com.prisset.vtools.render.ChestSearchOverlay;
 import com.prisset.vtools.notify.AlertDispatcher;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -27,6 +28,7 @@ public class VToolsMod implements ClientModInitializer {
             seq.tick(tickCounter);
             WTapHandler.tick();
             AutoFarmHandler.tick();
+            ChestSearchOverlay.tick();
             AlertDispatcher.scan(client, prefs);
             AlertDispatcher.scanAfk(client, prefs);
         });

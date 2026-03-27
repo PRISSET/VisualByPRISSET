@@ -147,9 +147,9 @@ public class PrefsScreen extends Screen {
 
     private void buildSearch() {
         String key = "search";
-        rows.add(new SectionLabel("\u041f\u041e\u0418\u0421\u041a", key));
+        rows.add(new SectionLabel("\u0421\u0423\u041d\u0414\u0423\u041a\u0418", key));
         if (!isCollapsed(key)) {
-            rows.add(new Toggle("\u041f\u043e\u0438\u0441\u043a \u0432 \u0441\u0443\u043d\u0434\u0443\u043a\u0430\u0445", prefs::isChestSearchEnabled, v -> prefs.setChestSearchEnabled(v)));
+            rows.add(new Toggle("\u0421\u043e\u0440\u0442\u0438\u0440\u043e\u0432\u043a\u0430 (R)", prefs::isChestSearchEnabled, v -> prefs.setChestSearchEnabled(v)));
         }
     }
 
