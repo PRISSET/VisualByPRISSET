@@ -5,6 +5,7 @@ import com.prisset.vtools.input.PlayerTargetHandler;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.render.Camera;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.util.math.Vec3d;
 
@@ -27,98 +28,96 @@ public final class TargetArrowRenderer {
             return;
         }
 
+        Camera camera = mc.gameRenderer.getCamera();
+        Vec3d camPos = camera.getPos();
+        float camYaw = camera.getYaw();
+        float camPitch = camera.getPitch();
+
         int screenW = mc.getWindow().getScaledWidth();
         int screenH = mc.getWindow().getScaledHeight();
 
-        Vec3d eyePos = mc.player.getCameraPosVec(mc.getTickDelta());
-        Vec3d targetCenter = target.getPos().add(0, target.getHeight() / 2.0, 0);
-        Vec3d toTarget = targetCenter.subtract(eyePos);
-        double dist = toTarget.length();
+        float td = mc.getTickDelta();
+        double tx = target.prevX + (target.getX() - target.prevX) * td;
+        double ty = target.prevY + (target.getY() - target.prevY) * td + target.getHeight() / 2.0;
+        double tz = target.prevZ + (target.getZ() - target.prevZ) * td;
 
-        double yawRad = Math.toRadians(mc.player.getYaw());
-        double pitchRad = Math.toRadians(mc.player.getPitch());
+        double dx = tx - camPos.x;
+        double dy = ty - camPos.y;
+        double dz = tz - camPos.z;
+        double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-        double cosYaw = Math.cos(yawRad);
-        double sinYaw = Math.sin(yawRad);
-        double cosPitch = Math.cos(pitchRad);
-        double sinPitch = Math.sin(pitchRad);
+        double yawRad = Math.toRadians(camYaw);
+        double pitchRad = Math.toRadians(camPitch);
 
-        double fwdX = -sinYaw * cosPitch;
-        double fwdY = -sinPitch;
-        double fwdZ = cosYaw * cosPitch;
+        double cy = Math.cos(yawRad);
+        double sy = Math.sin(yawRad);
+        double cp = Math.cos(pitchRad);
+        double sp = Math.sin(pitchRad);
 
-        double rightX = cosYaw;
-        double rightY = 0;
-        double rightZ = sinYaw;
+        double rx = dx * cy - dz * sy;
+        double rz = dx * sy + dz * cy;
 
-        double upX = sinYaw * sinPitch;
-        double upY = -cosPitch;
-        double upZ = -cosYaw * sinPitch;
-
-        double dotFwd = toTarget.x * fwdX + toTarget.y * fwdY + toTarget.z * fwdZ;
-        double dotRight = toTarget.x * rightX + toTarget.y * rightY + toTarget.z * rightZ;
-        double dotUp = toTarget.x * upX + toTarget.y * upY + toTarget.z * upZ;
+        double ry = dy * cp + rz * sp;
+        double rz2 = -dy * sp + rz * cp;
 
         double fov = Math.toRadians(mc.options.getFov().getValue());
+        double halfTan = Math.tan(fov / 2.0);
         double aspect = (double) screenW / screenH;
 
-        double halfH = Math.tan(fov / 2.0);
-        double halfW = halfH * aspect;
+        if (rz2 > 0.01) {
+            double ndcX = rx / (rz2 * halfTan * aspect);
+            double ndcY = -ry / (rz2 * halfTan);
 
-        if (dotFwd > 0.1) {
-            double sx = (dotRight / dotFwd) / halfW;
-            double sy = (dotUp / dotFwd) / halfH;
+            double px = (ndcX * 0.5 + 0.5) * screenW;
+            double py = (ndcY * 0.5 + 0.5) * screenH;
 
-            double px = screenW / 2.0 + sx * screenW / 2.0;
-            double py = screenH / 2.0 + sy * screenH / 2.0;
-
-            if (px >= 0 && px < screenW && py >= 0 && py < screenH) {
+            if (px >= -10 && px <= screenW + 10 && py >= -10 && py <= screenH + 10) {
                 renderTargetInfo(ctx, mc, target, dist, (int) px, (int) py - 20);
                 return;
             }
         }
 
-        double screenX, screenY;
-        if (dotFwd <= 0.1) {
-            screenX = -dotRight;
-            screenY = -dotUp;
+        double sx, ssy;
+        if (rz2 > 0.01) {
+            sx = rx;
+            ssy = -ry;
         } else {
-            screenX = dotRight / dotFwd;
-            screenY = dotUp / dotFwd;
+            sx = -rx;
+            ssy = ry;
         }
 
-        double len = Math.sqrt(screenX * screenX + screenY * screenY);
+        double len = Math.sqrt(sx * sx + ssy * ssy);
         if (len < 0.001) {
-            screenX = 0;
-            screenY = -1;
+            sx = 0;
+            ssy = 1;
             len = 1;
         }
-        double dirX = screenX / len;
-        double dirY = screenY / len;
+        double dirX = sx / len;
+        double dirY = ssy / len;
 
-        double cx = screenW / 2.0;
-        double cy = screenH / 2.0;
-        double padW = cx - EDGE_PAD;
-        double padH = cy - EDGE_PAD;
+        double cxs = screenW / 2.0;
+        double cys = screenH / 2.0;
+        double padW = cxs - EDGE_PAD;
+        double padH = cys - EDGE_PAD;
 
-        double tX, tY;
+        double posX, posY;
         if (Math.abs(dirX) * padH > Math.abs(dirY) * padW) {
             double scale = padW / Math.abs(dirX);
-            tX = cx + dirX * scale;
-            tY = cy + dirY * scale;
+            posX = cxs + dirX * scale;
+            posY = cys - dirY * scale;
         } else {
             double scale = padH / Math.abs(dirY);
-            tX = cx + dirX * scale;
-            tY = cy + dirY * scale;
+            posX = cxs + dirX * scale;
+            posY = cys - dirY * scale;
         }
 
-        tX = Math.max(EDGE_PAD, Math.min(screenW - EDGE_PAD, tX));
-        tY = Math.max(EDGE_PAD, Math.min(screenH - EDGE_PAD, tY));
+        posX = Math.max(EDGE_PAD, Math.min(screenW - EDGE_PAD, posX));
+        posY = Math.max(EDGE_PAD, Math.min(screenH - EDGE_PAD, posY));
 
         int arrowColor = accentColor(prefs);
-        double arrowAngle = Math.atan2(dirY, dirX);
-        renderArrowTriangle(ctx, (int) tX, (int) tY, arrowAngle, arrowColor);
-        renderTargetInfo(ctx, mc, target, dist, (int) tX, (int) tY);
+        double arrowAngle = Math.atan2(-(posY - cys), posX - cxs);
+        renderArrowTriangle(ctx, (int) posX, (int) posY, arrowAngle, arrowColor);
+        renderTargetInfo(ctx, mc, target, dist, (int) posX, (int) posY);
     }
 
     private static void renderNoTargetHud(DrawContext ctx, MinecraftClient mc) {
@@ -154,14 +153,14 @@ public final class TargetArrowRenderer {
     private static void renderArrowTriangle(DrawContext ctx, int cx, int cy,
                                              double angle, int color) {
         int tipX = cx + (int) (Math.cos(angle) * ARROW_SIZE);
-        int tipY = cy + (int) (Math.sin(angle) * ARROW_SIZE);
+        int tipY = cy - (int) (Math.sin(angle) * ARROW_SIZE);
 
         double perpAngle = angle + Math.PI / 2;
         int halfBase = ARROW_SIZE / 3;
         int bx1 = cx + (int) (Math.cos(perpAngle) * halfBase);
-        int by1 = cy + (int) (Math.sin(perpAngle) * halfBase);
+        int by1 = cy - (int) (Math.sin(perpAngle) * halfBase);
         int bx2 = cx - (int) (Math.cos(perpAngle) * halfBase);
-        int by2 = cy - (int) (Math.sin(perpAngle) * halfBase);
+        int by2 = cy + (int) (Math.sin(perpAngle) * halfBase);
 
         fillTriangle(ctx, tipX, tipY, bx1, by1, bx2, by2, color);
 
@@ -169,11 +168,11 @@ public final class TargetArrowRenderer {
             int glowA = 30 * i;
             int glowColor = (glowA << 24) | (color & 0x00FFFFFF);
             int gtx = cx + (int) (Math.cos(angle) * (ARROW_SIZE + i * 3));
-            int gty = cy + (int) (Math.sin(angle) * (ARROW_SIZE + i * 3));
+            int gty = cy - (int) (Math.sin(angle) * (ARROW_SIZE + i * 3));
             int gbx1 = cx + (int) (Math.cos(perpAngle) * (halfBase + i));
-            int gby1 = cy + (int) (Math.sin(perpAngle) * (halfBase + i));
+            int gby1 = cy - (int) (Math.sin(perpAngle) * (halfBase + i));
             int gbx2 = cx - (int) (Math.cos(perpAngle) * (halfBase + i));
-            int gby2 = cy - (int) (Math.sin(perpAngle) * (halfBase + i));
+            int gby2 = cy + (int) (Math.sin(perpAngle) * (halfBase + i));
             fillTriangle(ctx, gtx, gty, gbx1, gby1, gbx2, gby2, glowColor);
         }
     }

@@ -2,6 +2,7 @@ package com.prisset.vtools.input;
 
 import com.prisset.vtools.VToolsMod;
 import com.prisset.vtools.config.DisplayPrefs;
+import com.prisset.vtools.render.ChestSearchOverlay;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.network.ClientPlayerInteractionManager;
@@ -38,6 +39,8 @@ public final class AutoFarmHandler {
         if (mc.interactionManager == null) return;
 
         if (swapCooldown > 0) swapCooldown--;
+
+        if (ChestSearchOverlay.isSorting()) return;
 
         if (prefs.isAutoFarm()) tickAutoFarm(mc);
 

@@ -20,6 +20,7 @@ public final class ChestSearchOverlay {
     private static boolean sorting = false;
     private static final List<int[]> pendingSwaps = new ArrayList<>();
     private static int swapDelay = 0;
+    private static int lastPickedFrom = -1;
 
     private ChestSearchOverlay() {}
 
@@ -27,20 +28,29 @@ public final class ChestSearchOverlay {
         sorting = false;
         pendingSwaps.clear();
         swapDelay = 0;
+        lastPickedFrom = -1;
     }
 
     public static void onScreenClose() {
+        if (sorting) {
+            dropCursor();
+        }
         sorting = false;
         pendingSwaps.clear();
         swapDelay = 0;
+        lastPickedFrom = -1;
+    }
+
+    public static boolean isSorting() {
+        return sorting;
     }
 
     public static boolean onKeyPressed(int keyCode, int scanCode, int modifiers) {
         DisplayPrefs prefs = VToolsMod.getPrefs();
         if (prefs == null || !prefs.isChestSearchEnabled()) return false;
 
-        if (keyCode == 82 || keyCode == 344) {
-            triggerSort();
+        if (keyCode == 82) {
+            if (!sorting) triggerSort();
             return true;
         }
 
@@ -57,14 +67,12 @@ public final class ChestSearchOverlay {
 
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc.player == null || mc.interactionManager == null) {
-            pendingSwaps.clear();
-            sorting = false;
+            cancelSort();
             return;
         }
 
         if (!(mc.player.currentScreenHandler instanceof GenericContainerScreenHandler)) {
-            pendingSwaps.clear();
-            sorting = false;
+            cancelSort();
             return;
         }
 
@@ -74,6 +82,26 @@ public final class ChestSearchOverlay {
 
         if (pendingSwaps.isEmpty()) {
             sorting = false;
+            lastPickedFrom = -1;
+        }
+    }
+
+    private static void cancelSort() {
+        dropCursor();
+        pendingSwaps.clear();
+        sorting = false;
+        lastPickedFrom = -1;
+    }
+
+    private static void dropCursor() {
+        MinecraftClient mc = MinecraftClient.getInstance();
+        if (mc.player == null || mc.interactionManager == null) return;
+
+        ScreenHandler handler = mc.player.currentScreenHandler;
+        ItemStack cursor = handler.getCursorStack();
+        if (cursor != null && !cursor.isEmpty() && lastPickedFrom >= 0) {
+            mc.interactionManager.clickSlot(
+                handler.syncId, lastPickedFrom, 0, SlotActionType.PICKUP, mc.player);
         }
     }
 
@@ -136,9 +164,15 @@ public final class ChestSearchOverlay {
         ClientPlayerInteractionManager im = mc.interactionManager;
         int syncId = player.currentScreenHandler.syncId;
 
+        lastPickedFrom = from;
         im.clickSlot(syncId, from, 0, SlotActionType.PICKUP, player);
         im.clickSlot(syncId, to, 0, SlotActionType.PICKUP, player);
-        im.clickSlot(syncId, from, 0, SlotActionType.PICKUP, player);
+
+        ItemStack cursor = player.currentScreenHandler.getCursorStack();
+        if (cursor != null && !cursor.isEmpty()) {
+            im.clickSlot(syncId, from, 0, SlotActionType.PICKUP, player);
+        }
+        lastPickedFrom = -1;
     }
 
     private static int category(ItemStack stack) {
@@ -149,8 +183,7 @@ public final class ChestSearchOverlay {
         if (item instanceof ShovelItem) return 3;
         if (item instanceof HoeItem) return 4;
         if (item instanceof BowItem || item instanceof CrossbowItem) return 5;
-        if (item instanceof ArmorItem) {
-            ArmorItem armor = (ArmorItem) item;
+        if (item instanceof ArmorItem armor) {
             return 10 + armor.getSlotType().ordinal();
         }
         if (item instanceof ShieldItem) return 15;
@@ -158,10 +191,6 @@ public final class ChestSearchOverlay {
         if (item instanceof BlockItem) return 30;
         if (item instanceof ToolItem) return 6;
         return 50;
-    }
-
-    public static boolean isSorting() {
-        return sorting;
     }
 
     private static class SlotEntry {
