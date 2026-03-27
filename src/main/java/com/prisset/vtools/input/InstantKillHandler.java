@@ -6,10 +6,12 @@ import com.prisset.vtools.config.ProfileIndex;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.AbstractClientPlayerEntity;
 import net.minecraft.client.network.ClientPlayerEntity;
-import net.minecraft.client.network.ClientPlayerInteractionManager;
 import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.SwordItem;
+import net.minecraft.network.packet.c2s.play.HandSwingC2SPacket;
+import net.minecraft.network.packet.c2s.play.PlayerInteractEntityC2SPacket;
+import net.minecraft.network.packet.c2s.play.PlayerMoveC2SPacket;
 import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.util.Hand;
 import net.minecraft.util.math.Vec3d;
@@ -18,7 +20,7 @@ import java.util.List;
 
 public final class InstantKillHandler {
 
-    private static final double MAX_RANGE = 6.0;
+    private static final double MAX_RANGE = 3.5;
     private static int swapCooldown = 0;
 
     private InstantKillHandler() {}
@@ -34,38 +36,45 @@ public final class InstantKillHandler {
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc.player == null || mc.world == null || mc.currentScreen != null) return;
         if (mc.interactionManager == null) return;
+        if (mc.getNetworkHandler() == null) return;
 
         ClientPlayerEntity self = mc.player;
 
         AbstractClientPlayerEntity target = findTarget(mc, self);
         if (target == null) return;
 
+        equipBestSword(mc);
+
         float savedYaw = self.getYaw();
         float savedPitch = self.getPitch();
 
-        equipBestSword(mc);
-
-        Vec3d eyePos = target.getEyePos();
         Vec3d selfEye = self.getEyePos();
-        Vec3d diff = eyePos.subtract(selfEye);
-        double dist = diff.length();
+        Vec3d targetEye = target.getEyePos();
+        Vec3d diff = targetEye.subtract(selfEye);
         double dx = diff.x;
         double dz = diff.z;
-        float yaw = (float) (Math.toDegrees(Math.atan2(-dx, dz)));
-        float pitch = (float) (-Math.toDegrees(Math.atan2(diff.y, Math.sqrt(dx * dx + dz * dz))));
+        float attackYaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
+        float attackPitch = (float) -Math.toDegrees(Math.atan2(diff.y, Math.sqrt(dx * dx + dz * dz)));
 
-        self.setYaw(yaw);
-        self.setPitch(pitch);
-        self.prevYaw = yaw;
-        self.prevPitch = pitch;
+        boolean onGround = self.isOnGround();
 
-        mc.interactionManager.attackEntity(self, target);
-        self.swingHand(Hand.MAIN_HAND);
+        mc.getNetworkHandler().sendPacket(
+            new PlayerMoveC2SPacket.LookAndOnGround(attackYaw, attackPitch, onGround)
+        );
 
-        self.setYaw(savedYaw);
-        self.setPitch(savedPitch);
-        self.prevYaw = savedYaw;
-        self.prevPitch = savedPitch;
+        mc.getNetworkHandler().sendPacket(
+            PlayerInteractEntityC2SPacket.attack(target, self.isSneaking())
+        );
+
+        mc.getNetworkHandler().sendPacket(
+            new HandSwingC2SPacket(Hand.MAIN_HAND)
+        );
+
+        mc.getNetworkHandler().sendPacket(
+            new PlayerMoveC2SPacket.LookAndOnGround(savedYaw, savedPitch, onGround)
+        );
+
+        self.resetLastAttackedTicks();
     }
 
     private static AbstractClientPlayerEntity findTarget(MinecraftClient mc, ClientPlayerEntity self) {
