@@ -1,17 +1,17 @@
 package com.prisset.vtools.gui;
 
-import com.prisset.vtools.config.BuyRuleStore;
 import com.prisset.vtools.config.DisplayPrefs;
 import com.prisset.vtools.config.ProfileIndex;
-import com.prisset.vtools.input.MarketBuyHandler;
-import com.prisset.vtools.input.MarketParser;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.text.Text;
+import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -24,14 +24,34 @@ public class PrefsScreen extends Screen {
     private static final int SLIDER_LABEL_W = 80;
     private static final int SCROLL_SPEED = 12;
 
+    private static final Map<String, String> KEY_NAMES = new HashMap<>();
+
+    static {
+        KEY_NAMES.put("32", "SPACE");
+        KEY_NAMES.put("256", "ESC");
+        KEY_NAMES.put("257", "ENTER");
+        KEY_NAMES.put("258", "TAB");
+        KEY_NAMES.put("259", "BACKSPACE");
+        KEY_NAMES.put("340", "L_SHIFT");
+        KEY_NAMES.put("341", "L_CTRL");
+        KEY_NAMES.put("342", "L_ALT");
+        KEY_NAMES.put("344", "R_SHIFT");
+        KEY_NAMES.put("345", "R_CTRL");
+        KEY_NAMES.put("346", "R_ALT");
+        for (int i = GLFW.GLFW_KEY_F1; i <= GLFW.GLFW_KEY_F25; i++) {
+            KEY_NAMES.put(String.valueOf(i), "F" + (i - GLFW.GLFW_KEY_F1 + 1));
+        }
+    }
+
     private final DisplayPrefs prefs;
     private final List<Row> rows = new ArrayList<>();
+    private final Map<String, Boolean> collapsed = new HashMap<>();
     private int wx, wy, totalH;
     private int scrollOffset;
     private int maxScroll;
     private Row drag;
     private TextInputRow focusedInput = null;
-    private String marketSearchFilter = "";
+    private KeyBindRow activeKeyBind = null;
 
     public PrefsScreen(DisplayPrefs prefs) {
         super(Text.literal("PRISSET"));
@@ -44,97 +64,128 @@ public class PrefsScreen extends Screen {
         scrollOffset = 0;
         rows.clear();
 
-        // -- OVERLAY section --
-        rows.add(new Label("\u041e\u0412\u0415\u0420\u041b\u0415\u0419"));
-        rows.add(new Toggle("\u041e\u0432\u0435\u0440\u043b\u0435\u0439", prefs::isOverlayEnabled, v -> prefs.setOverlayEnabled(v)));
-        rows.add(new Toggle("\u0425\u0438\u0442\u0431\u043e\u043a\u0441\u044b", prefs::isHitboxEnabled, v -> prefs.setHitboxEnabled(v)));
-        rows.add(new Toggle("\u041f\u041a\u041c", prefs::isEspEnabled, v -> prefs.setEspEnabled(v)));
-        rows.add(new Toggle("\u041f\u043e\u043a\u0430\u0437\u044b\u0432\u0430\u0442\u044c", prefs::isActive, v -> prefs.setActive(v)));
-        rows.add(new Toggle("\u0418\u0433\u0440\u043e\u043a\u0438", prefs::isFilterPlayers, v -> prefs.setFilterPlayers(v)));
-        rows.add(new Toggle("\u041c\u043e\u0431\u044b", prefs::isFilterMobs, v -> prefs.setFilterMobs(v)));
-        rows.add(new Toggle("\u041f\u0440\u0435\u0434\u043c\u0435\u0442\u044b", prefs::isFilterDrops, v -> prefs.setFilterDrops(v)));
-        rows.add(new Toggle("\u0421\u043d\u0430\u0440\u044f\u0434\u044b", prefs::isFilterProjectiles, v -> prefs.setFilterProjectiles(v)));
+        buildOverlay();
+        buildColor();
+        buildEffects();
+        buildCombat();
+        buildTeammates();
+        buildTelegram();
+        buildMenu();
 
-        // -- COLOR section (overlay color) --
-        rows.add(new Label("\u0426\u0412\u0415\u0422"));
-        rows.add(new Slider("\u041a\u0440\u0430\u0441\u043d\u044b\u0439", 0, 255, prefs.getTintR(), v -> prefs.setTintR(v.intValue())));
-        rows.add(new Slider("\u0417\u0435\u043b\u0451\u043d\u044b\u0439", 0, 255, prefs.getTintG(), v -> prefs.setTintG(v.intValue())));
-        rows.add(new Slider("\u0421\u0438\u043d\u0438\u0439", 0, 255, prefs.getTintB(), v -> prefs.setTintB(v.intValue())));
-        rows.add(new Slider("\u041d\u0435\u043f\u0440\u043e\u0437\u0440\u0430\u0447\u043d.", 0, 255, prefs.getTintA(), v -> prefs.setTintA(v.intValue())));
+        recalcLayout();
+    }
 
-        // -- EFFECTS section --
-        rows.add(new Label("\u042d\u0424\u0424\u0415\u041a\u0422\u042b"));
-        rows.add(new Toggle("RGB", prefs::isRgbMode, v -> prefs.setRgbMode(v)));
-        rows.add(new Slider("RGB \u0441\u043a\u043e\u0440.", 0.1f, 5f, prefs.getRgbSpeed(), v -> prefs.setRgbSpeed(v.floatValue())));
-        rows.add(new Toggle("\u0417\u0434\u043e\u0440\u043e\u0432\u044c\u0435", prefs::isHealthBars, v -> prefs.setHealthBars(v)));
-        rows.add(new Slider("\u0417\u0443\u043c (C)", 1.5f, 10f, prefs.getZoomStrength(), v -> prefs.setZoomStrength(v.floatValue())));
-        rows.add(new Toggle("\u0421\u043b\u0435\u0434", prefs::isTrailEnabled, v -> prefs.setTrailEnabled(v)));
-        rows.add(new Slider("\u0414\u043b\u0438\u043d\u0430", 5, 40, prefs.getTrailLength(), v -> prefs.setTrailLength(v.intValue())));
-        rows.add(new Toggle("\u0411\u0435\u0437 \u0442\u0440\u044f\u0441\u043a\u0438", prefs::isNoBobbing, v -> prefs.setNoBobbing(v)));
-        rows.add(new Toggle("W \u0430\u0432\u0442\u043e\u043c\u0430\u0442", prefs::isWTap, v -> prefs.setWTap(v)));
-        rows.add(new Toggle("AFK \u0437\u0430\u0449\u0438\u0442\u0430", prefs::isAfkGuard, v -> prefs.setAfkGuard(v)));
-        rows.add(new Toggle("\u0410\u0432\u0442\u043e\u0444\u0430\u0440\u043c", prefs::isAutoFarm, v -> prefs.setAutoFarm(v)));
-        rows.add(new Toggle("\u0410\u0432\u0442\u043e\u0435\u0434\u0430", prefs::isAutoEat, v -> prefs.setAutoEat(v)));
-
-        // -- TEAMMATES section --
-        rows.add(new Label("\u0422\u0418\u041c\u041c\u0415\u0419\u0422\u042b"));
-        rows.add(new TextInputRow("\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043d\u0438\u043a", n -> {
-            ProfileIndex.get().add(n);
-            init();
-        }, 16, true));
-        for (String name : ProfileIndex.get().all()) {
-            rows.add(new TeammateRow(name, this));
+    private void buildOverlay() {
+        String key = "overlay";
+        rows.add(new SectionLabel("\u041e\u0412\u0415\u0420\u041b\u0415\u0419", key));
+        if (!isCollapsed(key)) {
+            rows.add(new Toggle("\u041e\u0432\u0435\u0440\u043b\u0435\u0439", prefs::isOverlayEnabled, v -> prefs.setOverlayEnabled(v)));
+            rows.add(new Toggle("\u0425\u0438\u0442\u0431\u043e\u043a\u0441\u044b", prefs::isHitboxEnabled, v -> prefs.setHitboxEnabled(v)));
+            rows.add(new Toggle("\u041f\u041a\u041c", prefs::isEspEnabled, v -> prefs.setEspEnabled(v)));
+            rows.add(new Toggle("\u041f\u043e\u043a\u0430\u0437\u044b\u0432\u0430\u0442\u044c", prefs::isActive, v -> prefs.setActive(v)));
+            rows.add(new Toggle("\u0418\u0433\u0440\u043e\u043a\u0438", prefs::isFilterPlayers, v -> prefs.setFilterPlayers(v)));
+            rows.add(new Toggle("\u041c\u043e\u0431\u044b", prefs::isFilterMobs, v -> prefs.setFilterMobs(v)));
+            rows.add(new Toggle("\u041f\u0440\u0435\u0434\u043c\u0435\u0442\u044b", prefs::isFilterDrops, v -> prefs.setFilterDrops(v)));
+            rows.add(new Toggle("\u0421\u043d\u0430\u0440\u044f\u0434\u044b", prefs::isFilterProjectiles, v -> prefs.setFilterProjectiles(v)));
         }
+    }
 
-        // -- TELEGRAM section --
-        rows.add(new Label("TELEGRAM"));
-        rows.add(new Toggle("\u0423\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u044f", prefs::isTgEnabled, v -> prefs.setTgEnabled(v)));
-        rows.add(new TextInputRow("Bot Token", v -> prefs.setTgBotToken(v), 64, false, prefs.getTgBotToken()));
-        rows.add(new TextInputRow("Chat ID", v -> prefs.setTgChatId(v), 32, false, prefs.getTgChatId()));
-
-        // -- MENU section (menu neon color, separate from overlay) --
-        rows.add(new Label("\u041c\u0415\u041d\u042e"));
-        rows.add(new Toggle("RGB \u043c\u0435\u043d\u044e", prefs::isMenuRgbMode, v -> prefs.setMenuRgbMode(v)));
-        rows.add(new Slider("RGB \u0441\u043a\u043e\u0440.", 0.1f, 5f, prefs.getMenuRgbSpeed(), v -> prefs.setMenuRgbSpeed(v.floatValue())));
-        rows.add(new Slider("\u041a\u0440\u0430\u0441\u043d\u044b\u0439", 0, 255, prefs.getMenuR(), v -> prefs.setMenuR(v.intValue())));
-        rows.add(new Slider("\u0417\u0435\u043b\u0451\u043d\u044b\u0439", 0, 255, prefs.getMenuG(), v -> prefs.setMenuG(v.intValue())));
-        rows.add(new Slider("\u0421\u0438\u043d\u0438\u0439", 0, 255, prefs.getMenuB(), v -> prefs.setMenuB(v.intValue())));
-
-        // -- AUTOBUY section --
-        rows.add(new Label("\u0410\u0412\u0422\u041e\u0411\u0410\u0419"));
-        rows.add(new Toggle("\u0410\u0432\u0442\u043e\u0431\u0430\u0439", prefs::isAutoBuy, v -> prefs.setAutoBuy(v)));
-        rows.add(new StatusRow(() -> MarketBuyHandler.getStatusText()));
-
-        for (int i = 0; i < BuyRuleStore.get().all().size(); i++) {
-            BuyRuleStore.BuyRule rule = BuyRuleStore.get().all().get(i);
-            rows.add(new BuyRuleRow(rule, i, this));
+    private void buildColor() {
+        String key = "color";
+        rows.add(new SectionLabel("\u0426\u0412\u0415\u0422", key));
+        if (!isCollapsed(key)) {
+            rows.add(new Slider("\u041a\u0440\u0430\u0441\u043d\u044b\u0439", 0, 255, prefs.getTintR(), v -> prefs.setTintR(v.intValue())));
+            rows.add(new Slider("\u0417\u0435\u043b\u0451\u043d\u044b\u0439", 0, 255, prefs.getTintG(), v -> prefs.setTintG(v.intValue())));
+            rows.add(new Slider("\u0421\u0438\u043d\u0438\u0439", 0, 255, prefs.getTintB(), v -> prefs.setTintB(v.intValue())));
+            rows.add(new Slider("\u041d\u0435\u043f\u0440\u043e\u0437\u0440\u0430\u0447\u043d.", 0, 255, prefs.getTintA(), v -> prefs.setTintA(v.intValue())));
         }
+    }
 
-        // -- MARKET ITEMS section --
-        List<MarketParser.MarketItem> cached = MarketBuyHandler.getCachedItems();
-        if (!cached.isEmpty()) {
-            rows.add(new Label("\u0422\u041e\u0412\u0410\u0420\u042b \u041c\u0410\u0420\u041a\u0415\u0422\u0410"));
-            rows.add(new TextInputRow("\u041f\u043e\u0438\u0441\u043a...", v -> marketSearchFilter = v, 32, false, marketSearchFilter));
-            for (MarketParser.MarketItem item : cached) {
-                rows.add(new MarketItemRow(item, this));
+    private void buildEffects() {
+        String key = "effects";
+        rows.add(new SectionLabel("\u042d\u0424\u0424\u0415\u041a\u0422\u042b", key));
+        if (!isCollapsed(key)) {
+            rows.add(new Toggle("RGB", prefs::isRgbMode, v -> prefs.setRgbMode(v)));
+            rows.add(new Slider("RGB \u0441\u043a\u043e\u0440.", 0.1f, 5f, prefs.getRgbSpeed(), v -> prefs.setRgbSpeed(v.floatValue())));
+            rows.add(new Toggle("\u0417\u0434\u043e\u0440\u043e\u0432\u044c\u0435", prefs::isHealthBars, v -> prefs.setHealthBars(v)));
+            rows.add(new Slider("\u0417\u0443\u043c (C)", 1.5f, 10f, prefs.getZoomStrength(), v -> prefs.setZoomStrength(v.floatValue())));
+            rows.add(new Toggle("\u0421\u043b\u0435\u0434", prefs::isTrailEnabled, v -> prefs.setTrailEnabled(v)));
+            rows.add(new Slider("\u0414\u043b\u0438\u043d\u0430", 5, 40, prefs.getTrailLength(), v -> prefs.setTrailLength(v.intValue())));
+            rows.add(new Toggle("\u0411\u0435\u0437 \u0442\u0440\u044f\u0441\u043a\u0438", prefs::isNoBobbing, v -> prefs.setNoBobbing(v)));
+        }
+    }
+
+    private void buildCombat() {
+        String key = "combat";
+        rows.add(new SectionLabel("\u0411\u041e\u0419", key));
+        if (!isCollapsed(key)) {
+            rows.add(new Toggle("\u0418\u043d\u0441\u0442\u0430\u043d\u0442 \u043a\u0438\u043b\u043b", prefs::isInstantKill, v -> prefs.setInstantKill(v)));
+            rows.add(new KeyBindRow("\u041a\u043b\u0430\u0432\u0438\u0448\u0430", prefs::getInstantKillKey, v -> prefs.setInstantKillKey(v)));
+            rows.add(new Toggle("\u0410\u0432\u0442\u043e\u0444\u0430\u0440\u043c", prefs::isAutoFarm, v -> prefs.setAutoFarm(v)));
+            rows.add(new Toggle("\u0410\u0432\u0442\u043e\u0435\u0434\u0430", prefs::isAutoEat, v -> prefs.setAutoEat(v)));
+            rows.add(new Toggle("W \u0430\u0432\u0442\u043e\u043c\u0430\u0442", prefs::isWTap, v -> prefs.setWTap(v)));
+            rows.add(new Toggle("AFK \u0437\u0430\u0449\u0438\u0442\u0430", prefs::isAfkGuard, v -> prefs.setAfkGuard(v)));
+        }
+    }
+
+    private void buildTeammates() {
+        String key = "teammates";
+        rows.add(new SectionLabel("\u0422\u0418\u041c\u041c\u0415\u0419\u0422\u042b", key));
+        if (!isCollapsed(key)) {
+            rows.add(new TextInputRow("\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043d\u0438\u043a", n -> {
+                ProfileIndex.get().add(n);
+                init();
+            }, 16, true));
+            for (String name : ProfileIndex.get().all()) {
+                rows.add(new TeammateRow(name, this));
             }
         }
+    }
 
+    private void buildTelegram() {
+        String key = "telegram";
+        rows.add(new SectionLabel("TELEGRAM", key));
+        if (!isCollapsed(key)) {
+            rows.add(new Toggle("\u0423\u0432\u0435\u0434\u043e\u043c\u043b\u0435\u043d\u0438\u044f", prefs::isTgEnabled, v -> prefs.setTgEnabled(v)));
+            rows.add(new TextInputRow("Bot Token", v -> prefs.setTgBotToken(v), 64, false, prefs.getTgBotToken()));
+            rows.add(new TextInputRow("Chat ID", v -> prefs.setTgChatId(v), 32, false, prefs.getTgChatId()));
+        }
+    }
+
+    private void buildMenu() {
+        String key = "menu";
+        rows.add(new SectionLabel("\u041c\u0415\u041d\u042e", key));
+        if (!isCollapsed(key)) {
+            rows.add(new Toggle("RGB \u043c\u0435\u043d\u044e", prefs::isMenuRgbMode, v -> prefs.setMenuRgbMode(v)));
+            rows.add(new Slider("RGB \u0441\u043a\u043e\u0440.", 0.1f, 5f, prefs.getMenuRgbSpeed(), v -> prefs.setMenuRgbSpeed(v.floatValue())));
+            rows.add(new Slider("\u041a\u0440\u0430\u0441\u043d\u044b\u0439", 0, 255, prefs.getMenuR(), v -> prefs.setMenuR(v.intValue())));
+            rows.add(new Slider("\u0417\u0435\u043b\u0451\u043d\u044b\u0439", 0, 255, prefs.getMenuG(), v -> prefs.setMenuG(v.intValue())));
+            rows.add(new Slider("\u0421\u0438\u043d\u0438\u0439", 0, 255, prefs.getMenuB(), v -> prefs.setMenuB(v.intValue())));
+        }
+    }
+
+    private boolean isCollapsed(String key) {
+        return collapsed.getOrDefault(key, false);
+    }
+
+    private void toggleSection(String key) {
+        collapsed.put(key, !isCollapsed(key));
+        init();
+    }
+
+    private void recalcLayout() {
         totalH = PAD + 14;
         for (Row r : rows) {
-            if (r instanceof MarketItemRow mir && !mir.matchesFilter()) continue;
-            totalH += r instanceof Label ? LABEL_H : ROW_H;
+            totalH += r instanceof SectionLabel ? LABEL_H : ROW_H;
         }
         totalH += PAD;
 
         wx = (width - W) / 2;
-
         int visibleH = Math.min(totalH, height - 20);
         wy = (height - visibleH) / 2;
         maxScroll = Math.max(0, totalH - visibleH);
     }
 
-    // Menu neon uses its own color fields
     private int neon() {
         if (prefs.isMenuRgbMode()) {
             float hue = (System.currentTimeMillis() % 4000L) / 4000f * prefs.getMenuRgbSpeed() % 1f;
@@ -150,6 +201,16 @@ public class PrefsScreen extends Screen {
     private static int nb(int c) { return c & 0xFF; }
     private static int rgba(int r, int g, int b, int a) { return (a << 24) | (r << 16) | (g << 8) | b; }
 
+    static String keyName(int keyCode) {
+        String mapped = KEY_NAMES.get(String.valueOf(keyCode));
+        if (mapped != null) return mapped;
+        if (keyCode >= 65 && keyCode <= 90) return String.valueOf((char) keyCode);
+        if (keyCode >= 48 && keyCode <= 57) return String.valueOf((char) keyCode);
+        String glfwName = GLFW.glfwGetKeyName(keyCode, 0);
+        if (glfwName != null) return glfwName.toUpperCase();
+        return "KEY_" + keyCode;
+    }
+
     @Override
     public void render(DrawContext ctx, int mx, int my, float delta) {
         long now = System.currentTimeMillis();
@@ -157,10 +218,7 @@ public class PrefsScreen extends Screen {
         int nR = nr(nc), nG = ng(nc), nB = nb(nc);
         float pulse = (float)(Math.sin(now / 500.0) * 0.12 + 0.88);
 
-        // --- Blur-like background ---
-        // Layer 1: heavy dark overlay
         ctx.fill(0, 0, width, height, 0xC0000000);
-        // Layers 2-5: radial-ish vignette from edges inward
         int steps = 12;
         for (int i = 0; i < steps; i++) {
             int inset = i * 8;
@@ -168,21 +226,17 @@ public class PrefsScreen extends Screen {
             if (alpha <= 0) break;
             ctx.fill(inset, inset, width - inset, height - inset, rgba(0, 0, 0, alpha));
         }
-        // Layer 6: subtle neon-tinted fog
         ctx.fill(0, 0, width, height, rgba(nR / 8, nG / 8, nB / 8, 18));
 
         int visibleH = Math.min(totalH, height - 20);
 
-        // Outer glow (6 layers, fading outward)
         for (int i = 6; i >= 1; i--) {
             int a = (int)(pulse * (6 + (6 - i) * 4));
             ctx.fill(wx - i, wy - i, wx + W + i, wy + visibleH + i, rgba(nR, nG, nB, a));
         }
 
-        // Black panel
         ctx.fill(wx, wy, wx + W, wy + visibleH, 0xFF000000);
 
-        // Border 1px neon
         int ba = (int)(pulse * 180);
         int bc = rgba(nR, nG, nB, ba);
         ctx.fill(wx, wy, wx + W, wy + 1, bc);
@@ -190,35 +244,27 @@ public class PrefsScreen extends Screen {
         ctx.fill(wx, wy + 1, wx + 1, wy + visibleH - 1, bc);
         ctx.fill(wx + W - 1, wy + 1, wx + W, wy + visibleH - 1, bc);
 
-        // Top line brighter
         ctx.fill(wx + 1, wy, wx + W - 1, wy + 1, rgba(nR, nG, nB, (int)(pulse * 255)));
 
-        // Title centered
         String title = "PRISSET";
         int tw = textRenderer.getWidth(title);
         ctx.drawTextWithShadow(textRenderer, title, wx + (W - tw) / 2, wy + 3, rgba(nR, nG, nB, 255));
 
-        // Overlay color swatch next to title
         int sc = (prefs.getTintA() << 24) | (prefs.getTintR() << 16) | (prefs.getTintG() << 8) | prefs.getTintB();
         ctx.fill(wx + W - 14, wy + 3, wx + W - 4, wy + 11, sc);
 
-        // Scissor clip for scrollable content
         ctx.enableScissor(wx, wy + 14, wx + W, wy + visibleH);
 
-        // Rows (scrollable)
         int y = wy + PAD + 14 - scrollOffset;
         for (Row r : rows) {
-            if (r instanceof MarketItemRow mir && !mir.matchesFilter()) continue;
-
-            int rh = r instanceof Label ? LABEL_H : ROW_H;
+            int rh = r instanceof SectionLabel ? LABEL_H : ROW_H;
             r.rx = wx + PAD;
             r.ry = y;
             r.rw = W - PAD * 2;
             r.rh = rh;
 
-            // Only render if visible
             if (y + rh > wy && y < wy + visibleH) {
-                if (!(r instanceof Label)) {
+                if (!(r instanceof SectionLabel)) {
                     boolean hov = r.contains(mx, my) && my >= wy && my < wy + visibleH;
                     if (hov) {
                         ctx.fill(r.rx, r.ry, r.rx + r.rw, r.ry + r.rh, rgba(nR, nG, nB, 14));
@@ -232,7 +278,6 @@ public class PrefsScreen extends Screen {
 
         ctx.disableScissor();
 
-        // Scroll indicator (thin bar on right side)
         if (maxScroll > 0) {
             float scrollFrac = (float) scrollOffset / maxScroll;
             int barH = Math.max(8, visibleH * visibleH / totalH);
@@ -241,16 +286,17 @@ public class PrefsScreen extends Screen {
         }
     }
 
-    // === INPUT ===
-
     @Override
     public boolean mouseClicked(double mx, double my, int btn) {
         if (btn != 0) return super.mouseClicked(mx, my, btn);
+        if (activeKeyBind != null) {
+            activeKeyBind = null;
+            return true;
+        }
         boolean clickedInput = false;
         int visibleH = Math.min(totalH, height - 20);
         for (Row r : rows) {
-            if (!(r instanceof Label) && r.contains((int) mx, (int) my)
-                    && my >= wy && my < wy + visibleH) {
+            if (r.contains((int) mx, (int) my) && my >= wy && my < wy + visibleH) {
                 r.onClick((int) mx);
                 if (r instanceof Slider) drag = r;
                 if (r instanceof TextInputRow) clickedInput = true;
@@ -282,8 +328,14 @@ public class PrefsScreen extends Screen {
         return super.mouseScrolled(mx, my, amount);
     }
 
-    @Override public void close() { prefs.save(); if (client != null) client.setScreen(null); }
-    @Override public boolean shouldPause() { return false; }
+    @Override
+    public void close() {
+        prefs.save();
+        if (client != null) client.setScreen(null);
+    }
+
+    @Override
+    public boolean shouldPause() { return false; }
 
     // === ROW TYPES ===
 
@@ -295,19 +347,30 @@ public class PrefsScreen extends Screen {
         boolean contains(int mx, int my) { return mx >= rx && mx < rx + rw && my >= ry && my < ry + rh; }
     }
 
-    static class Label extends Row {
+    class SectionLabel extends Row {
         final String text;
-        Label(String t) { text = t; }
+        final String sectionKey;
+
+        SectionLabel(String t, String key) { text = t; sectionKey = key; }
 
         @Override
         void render(DrawContext ctx, TextRenderer tr, int mx, int my, int nc) {
+            boolean hov = contains(mx, my);
             int ar = nr(nc) / 2, ag = ng(nc) / 2, ab = nb(nc) / 2;
-            ctx.drawTextWithShadow(tr, text, rx, ry + 8, rgba(ar, ag, ab, 255));
-            int lw = tr.getWidth(text);
+            int textColor = hov ? rgba(nr(nc), ng(nc), nb(nc), 255) : rgba(ar, ag, ab, 255);
+
+            String arrow = isCollapsed(sectionKey) ? "\u25b6 " : "\u25bc ";
+            ctx.drawTextWithShadow(tr, arrow + text, rx, ry + 8, textColor);
+
+            int lw = tr.getWidth(arrow + text);
             ctx.fill(rx + lw + 6, ry + 12, rx + rw, ry + 13, 0xFF111114);
         }
 
-        @Override boolean contains(int mx, int my) { return false; }
+        @Override
+        boolean contains(int mx, int my) { return mx >= rx && mx < rx + rw && my >= ry && my < ry + rh; }
+
+        @Override
+        void onClick(int mx) { toggleSection(sectionKey); }
     }
 
     static class Toggle extends Row {
@@ -354,7 +417,6 @@ public class PrefsScreen extends Screen {
         }
 
         float frac() { return max <= min ? 0 : Math.max(0, Math.min(1, (val - min) / (max - min))); }
-
         int trackX() { return rx + SLIDER_LABEL_W; }
         int trackW() { return rw - SLIDER_LABEL_W - 34; }
 
@@ -372,7 +434,6 @@ public class PrefsScreen extends Screen {
 
             int tx = trackX(), tw = trackW();
             int ty = ry + rh / 2;
-
             ctx.fill(tx, ty, tx + tw, ty + 2, 0xFF1C1C22);
 
             int fw = (int)(frac() * tw);
@@ -395,40 +456,45 @@ public class PrefsScreen extends Screen {
         @Override void onDrag(int mx) { apply(mx); }
     }
 
-    static class Button extends Row {
+    class KeyBindRow extends Row {
         final String label;
-        final Runnable action;
-        boolean flash;
-        long flashTime;
+        final Supplier<Integer> get;
+        final Consumer<Integer> set;
 
-        Button(String l, Runnable a) { label = l; action = a; }
+        KeyBindRow(String l, Supplier<Integer> g, Consumer<Integer> s) { label = l; get = g; set = s; }
+
+        boolean isListening() { return activeKeyBind == this; }
 
         @Override
         void render(DrawContext ctx, TextRenderer tr, int mx, int my, int nc) {
-            boolean hov = contains(mx, my);
-            long age = System.currentTimeMillis() - flashTime;
-            boolean showFlash = flash && age < 600;
+            ctx.drawTextWithShadow(tr, label, rx + 2, ry + 4, 0xFF808090);
 
-            int bg = hov ? rgba(nr(nc), ng(nc), nb(nc), 30) : 0xFF0E0E12;
-            if (showFlash) bg = rgba(40, 200, 60, 60);
+            int btnX = rx + rw - 60;
+            int btnW = 58;
+            boolean hov = mx >= btnX && mx < btnX + btnW && my >= ry && my < ry + rh;
+            boolean listening = isListening();
 
-            ctx.fill(rx, ry + 1, rx + rw, ry + rh - 1, bg);
-            // Border
-            int bc = hov ? rgba(nr(nc), ng(nc), nb(nc), 120) : 0xFF2A2A30;
-            ctx.fill(rx, ry + 1, rx + rw, ry + 2, bc);
-            ctx.fill(rx, ry + rh - 2, rx + rw, ry + rh - 1, bc);
+            int bg = listening ? rgba(nr(nc), ng(nc), nb(nc), 60) : (hov ? 0xFF1A1A24 : 0xFF0E0E12);
+            int border = listening ? rgba(nr(nc), ng(nc), nb(nc), 200) : (hov ? rgba(nr(nc), ng(nc), nb(nc), 120) : 0xFF2A2A30);
 
-            int textColor = showFlash ? 0xFF40FF40 : (hov ? 0xFFE0E0E8 : 0xFF808090);
-            String display = showFlash ? "\u0413\u043e\u0442\u043e\u0432\u043e!" : label;
-            int tw = tr.getWidth(display);
-            ctx.drawTextWithShadow(tr, display, rx + (rw - tw) / 2, ry + 4, textColor);
+            ctx.fill(btnX, ry + 1, btnX + btnW, ry + rh - 1, bg);
+            ctx.fill(btnX, ry + 1, btnX + btnW, ry + 2, border);
+            ctx.fill(btnX, ry + rh - 2, btnX + btnW, ry + rh - 1, border);
+            ctx.fill(btnX, ry + 1, btnX + 1, ry + rh - 1, border);
+            ctx.fill(btnX + btnW - 1, ry + 1, btnX + btnW, ry + rh - 1, border);
+
+            String display = listening ? "..." : keyName(get.get());
+            int textColor = listening ? rgba(nr(nc), ng(nc), nb(nc), 255) : 0xFFD8D8E0;
+            int dw = tr.getWidth(display);
+            ctx.drawTextWithShadow(tr, display, btnX + (btnW - dw) / 2, ry + 4, textColor);
         }
 
         @Override
         void onClick(int mx) {
-            action.run();
-            flash = true;
-            flashTime = System.currentTimeMillis();
+            int btnX = rx + rw - 60;
+            if (mx >= btnX) {
+                activeKeyBind = isListening() ? null : this;
+            }
         }
     }
 
@@ -553,123 +619,19 @@ public class PrefsScreen extends Screen {
         }
     }
 
-    static class StatusRow extends Row {
-        final Supplier<String> textSupplier;
-
-        StatusRow(Supplier<String> s) { textSupplier = s; }
-
-        @Override
-        void render(DrawContext ctx, TextRenderer tr, int mx, int my, int nc) {
-            String status = "\u0421\u0442\u0430\u0442\u0443\u0441: " + textSupplier.get();
-            ctx.drawTextWithShadow(tr, status, rx + 4, ry + 4, 0xFFB0B0B8);
-        }
-
-        @Override boolean contains(int mx, int my) { return false; }
-    }
-
-    class BuyRuleRow extends Row {
-        final BuyRuleStore.BuyRule rule;
-        final int index;
-        final PrefsScreen screen;
-
-        BuyRuleRow(BuyRuleStore.BuyRule r, int idx, PrefsScreen s) {
-            rule = r; index = idx; screen = s;
-        }
-
-        @Override
-        void render(DrawContext ctx, TextRenderer tr, int mx, int my, int nc) {
-            int color = rule.isFulfilled() ? 0xFF40FF40 : (rule.isEnabled() ? 0xFFD8D8E0 : 0xFF4A4A54);
-
-            String name = rule.getDisplayName();
-            if (name.length() > 14) name = name.substring(0, 12) + "..";
-            ctx.drawTextWithShadow(tr, name, rx + 4, ry + 4, color);
-
-            String info = rule.getMaxPricePerUnit() + "\u20b3 " + rule.getBought() + "/" + rule.getQuantity();
-            int infoW = tr.getWidth(info);
-            ctx.drawTextWithShadow(tr, info, rx + rw - 48 - infoW - 2, ry + 4, 0xFF808090);
-
-            boolean toggleHov = mx >= rx + rw - 48 && mx < rx + rw - 24 && my >= ry && my < ry + rh;
-            int toggleBg = toggleHov ? rgba(nr(nc), ng(nc), nb(nc), 40) : 0xFF1A1A24;
-            ctx.fill(rx + rw - 48, ry + 1, rx + rw - 24, ry + rh - 1, toggleBg);
-            String toggleTxt = rule.isEnabled() ? "+" : "-";
-            int toggleColor = rule.isEnabled() ? 0xFF40FF40 : 0xFFFF4040;
-            int tw = tr.getWidth(toggleTxt);
-            ctx.drawTextWithShadow(tr, toggleTxt, rx + rw - 36 - tw / 2, ry + 4, toggleColor);
-
-            boolean delHov = mx >= rx + rw - 24 && mx < rx + rw && my >= ry && my < ry + rh;
-            int delBg = delHov ? rgba(200, 40, 40, 60) : 0xFF1A1A24;
-            ctx.fill(rx + rw - 24, ry + 1, rx + rw, ry + rh - 1, delBg);
-            String x = "x";
-            int xw = tr.getWidth(x);
-            ctx.drawTextWithShadow(tr, x, rx + rw - 12 - xw / 2, ry + 4, 0xFFFF4040);
-        }
-
-        @Override
-        void onClick(int mx) {
-            if (mx >= rx + rw - 24) {
-                BuyRuleStore.get().remove(index);
-                screen.init();
-            } else if (mx >= rx + rw - 48) {
-                rule.setEnabled(!rule.isEnabled());
-                BuyRuleStore.get().save();
-            } else {
-                screen.client.setScreen(new BuyRuleEditScreen(screen, rule));
-            }
-        }
-    }
-
-
-
-    class MarketItemRow extends Row {
-        final MarketParser.MarketItem item;
-        final PrefsScreen screen;
-
-        MarketItemRow(MarketParser.MarketItem i, PrefsScreen s) { item = i; screen = s; }
-
-        boolean matchesFilter() {
-            if (screen.marketSearchFilter.isBlank()) return true;
-            String filter = screen.marketSearchFilter.toLowerCase();
-            return item.getDisplayName().toLowerCase().contains(filter)
-                    || item.getItemId().toLowerCase().contains(filter);
-        }
-
-        @Override
-        void render(DrawContext ctx, TextRenderer tr, int mx, int my, int nc) {
-            if (!matchesFilter()) return;
-
-            String text = item.getDisplayName();
-            if (item.getCount() > 1) text += " x" + item.getCount();
-            text += " - " + item.getPricePerUnit() + "\u20b3/\u0448\u0442.";
-
-            ctx.drawTextWithShadow(tr, text, rx + 4, ry + 4, 0xFFB0B0B8);
-
-            boolean addHov = mx >= rx + rw - 24 && mx < rx + rw && my >= ry && my < ry + rh;
-            int addBg = addHov ? rgba(40, 200, 60, 60) : 0xFF1A1A24;
-            ctx.fill(rx + rw - 24, ry + 1, rx + rw, ry + rh - 1, addBg);
-            String plus = "+";
-            int pw = tr.getWidth(plus);
-            ctx.drawTextWithShadow(tr, plus, rx + rw - 12 - pw / 2, ry + 4, 0xFF40FF40);
-        }
-
-        @Override
-        void onClick(int mx) {
-            if (mx >= rx + rw - 24) {
-                BuyRuleStore.get().add(new BuyRuleStore.BuyRule(
-                        item.getDisplayName(), item.getItemId(),
-                        item.getPricePerUnit(), 1));
-                screen.init();
-            }
-        }
-
-        @Override
-        boolean contains(int mx, int my) {
-            if (!matchesFilter()) return false;
-            return mx >= rx && mx < rx + rw && my >= ry && my < ry + rh;
-        }
-    }
-
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (activeKeyBind != null) {
+            if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+                activeKeyBind = null;
+                return true;
+            }
+            activeKeyBind.set.accept(keyCode);
+            prefs.save();
+            activeKeyBind = null;
+            return true;
+        }
+
         if (focusedInput != null) {
             if (keyCode == 86 && (modifiers & 0x2) != 0 || keyCode == 86 && (modifiers & 0x8) != 0) {
                 String clip = net.minecraft.client.MinecraftClient.getInstance().keyboard.getClipboard();
@@ -701,6 +663,7 @@ public class PrefsScreen extends Screen {
 
     @Override
     public boolean charTyped(char chr, int modifiers) {
+        if (activeKeyBind != null) return true;
         if (focusedInput != null) {
             focusedInput.typeChar(chr);
             return true;
