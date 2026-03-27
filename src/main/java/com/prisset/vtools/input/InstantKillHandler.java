@@ -17,13 +17,12 @@ import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 
 import java.util.List;
-import java.util.concurrent.ThreadLocalRandom;
 
 public final class InstantKillHandler {
 
     private static final double MAX_RANGE = 3.5;
-    private static final int MIN_TICKS = 3;
-    private static final float TICKS_PER_DEGREE = 0.08f;
+    private static final int MIN_TICKS = 1;
+    private static final float TICKS_PER_DEGREE = 0.03f;
 
     private static int swapCooldown = 0;
     private static boolean active = false;
@@ -36,8 +35,6 @@ public final class InstantKillHandler {
     private InstantKillHandler() {}
 
     public static void execute() {
-        if (active) return;
-
         DisplayPrefs prefs = VToolsMod.getPrefs();
         if (prefs == null || !prefs.isInstantKill()) return;
 
@@ -61,8 +58,7 @@ public final class InstantKillHandler {
 
         float angleDist = Math.abs(wrapDegrees(goalYaw - startYaw))
                         + Math.abs(goalPitch - startPitch) * 0.5f;
-        totalTicks = Math.max(MIN_TICKS, (int)(angleDist * TICKS_PER_DEGREE)
-                     + ThreadLocalRandom.current().nextInt(0, 2));
+        totalTicks = Math.max(MIN_TICKS, (int)(angleDist * TICKS_PER_DEGREE));
         elapsed = 0;
         active = true;
     }
