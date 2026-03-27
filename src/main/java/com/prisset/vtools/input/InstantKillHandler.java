@@ -22,27 +22,27 @@ import java.util.concurrent.ThreadLocalRandom;
 public final class InstantKillHandler {
 
     private static final double MAX_RANGE = 3.5;
-    private static final float TURN_SPEED_MIN = 8.0f;
-    private static final float TURN_SPEED_MAX = 16.0f;
-    private static final float AIM_THRESHOLD = 3.5f;
-    private static final int RETURN_DELAY_MIN = 2;
-    private static final int RETURN_DELAY_MAX = 5;
-    private static final float RETURN_SPEED_MULT = 0.7f;
+    private static final float MIN_DURATION_TICKS = 6f;
+    private static final float TICKS_PER_DEGREE = 0.18f;
+    private static final int HOLD_TICKS_MIN = 2;
+    private static final int HOLD_TICKS_MAX = 4;
 
     private static int swapCooldown = 0;
 
     private static State state = State.IDLE;
     private static int targetId = -1;
-    private static float returnYaw;
-    private static float returnPitch;
-    private static int delayTicks;
-    private static boolean attacked;
+
+    private static float originYaw, originPitch;
+    private static float startYaw, startPitch;
+    private static float goalYaw, goalPitch;
+    private static int totalTicks;
+    private static int elapsed;
 
     private enum State {
         IDLE,
-        TURNING_TO,
-        HIT_DELAY,
-        TURNING_BACK
+        AIMING,
+        HOLDING,
+        RETURNING
     }
 
     private InstantKillHandler() {}
@@ -64,10 +64,23 @@ public final class InstantKillHandler {
         equipBestSword(mc);
 
         targetId = target.getId();
-        returnYaw = self.getYaw();
-        returnPitch = self.getPitch();
-        attacked = false;
-        state = State.TURNING_TO;
+        originYaw = self.getYaw();
+        originPitch = self.getPitch();
+        startYaw = originYaw;
+        startPitch = originPitch;
+
+        float[] aim = calcAim(self, target);
+        goalYaw = aim[0];
+        goalPitch = aim[1];
+
+        float angleDist = Math.abs(wrapDegrees(goalYaw - startYaw))
+                        + Math.abs(goalPitch - startPitch);
+        totalTicks = Math.max((int) MIN_DURATION_TICKS,
+                              (int)(angleDist * TICKS_PER_DEGREE));
+        totalTicks += ThreadLocalRandom.current().nextInt(0, 3);
+        elapsed = 0;
+
+        state = State.AIMING;
     }
 
     public static void tick() {
@@ -83,14 +96,14 @@ public final class InstantKillHandler {
         ClientPlayerEntity self = mc.player;
 
         switch (state) {
-            case TURNING_TO -> tickTurnTo(mc, self);
-            case HIT_DELAY -> tickHitDelay(mc, self);
-            case TURNING_BACK -> tickTurnBack(mc, self);
+            case AIMING -> tickAiming(mc, self);
+            case HOLDING -> tickHolding(mc, self);
+            case RETURNING -> tickReturning(mc, self);
             default -> {}
         }
     }
 
-    private static void tickTurnTo(MinecraftClient mc, ClientPlayerEntity self) {
+    private static void tickAiming(MinecraftClient mc, ClientPlayerEntity self) {
         AbstractClientPlayerEntity target = resolveTarget(mc);
         if (target == null || target.isDead()) {
             reset();
@@ -98,61 +111,71 @@ public final class InstantKillHandler {
         }
 
         float[] aim = calcAim(self, target);
-        float targetYaw = aim[0];
-        float targetPitch = aim[1];
+        goalYaw = aim[0];
+        goalPitch = aim[1];
 
-        float remaining = Math.abs(wrapDegrees(targetYaw - self.getYaw()));
-        float speed = adaptiveSpeed(remaining);
-        float newYaw = smoothRotate(self.getYaw(), targetYaw, speed);
-        float newPitch = smoothRotate(self.getPitch(), targetPitch, speed * 0.6f);
+        elapsed++;
+        float t = MathHelper.clamp((float) elapsed / totalTicks, 0f, 1f);
+        float eased = easeInOut(t);
 
-        newYaw += (ThreadLocalRandom.current().nextFloat() - 0.5f) * 1.5f;
-        newPitch += (ThreadLocalRandom.current().nextFloat() - 0.5f) * 0.8f;
+        float yaw = lerpAngle(startYaw, goalYaw, eased);
+        float pitch = MathHelper.lerp(eased, startPitch, goalPitch);
 
-        self.setYaw(newYaw);
-        self.setPitch(MathHelper.clamp(newPitch, -90f, 90f));
+        self.setYaw(yaw);
+        self.setPitch(MathHelper.clamp(pitch, -90f, 90f));
 
-        float yawDiff = Math.abs(wrapDegrees(newYaw - targetYaw));
-        float pitchDiff = Math.abs(newPitch - targetPitch);
-
-        if (yawDiff < AIM_THRESHOLD && pitchDiff < AIM_THRESHOLD) {
+        if (t >= 1f) {
             performAttack(mc, self, target);
-            attacked = true;
-            delayTicks = ThreadLocalRandom.current().nextInt(RETURN_DELAY_MIN, RETURN_DELAY_MAX + 1);
-            state = State.HIT_DELAY;
+
+            startYaw = self.getYaw();
+            startPitch = self.getPitch();
+            goalYaw = startYaw;
+            goalPitch = startPitch;
+            totalTicks = ThreadLocalRandom.current().nextInt(HOLD_TICKS_MIN, HOLD_TICKS_MAX + 1);
+            elapsed = 0;
+            state = State.HOLDING;
         }
     }
 
-    private static void tickHitDelay(MinecraftClient mc, ClientPlayerEntity self) {
-        delayTicks--;
-        if (delayTicks <= 0) {
-            state = State.TURNING_BACK;
+    private static void tickHolding(MinecraftClient mc, ClientPlayerEntity self) {
+        elapsed++;
+        if (elapsed >= totalTicks) {
+            startYaw = self.getYaw();
+            startPitch = self.getPitch();
+            goalYaw = originYaw;
+            goalPitch = originPitch;
+
+            float angleDist = Math.abs(wrapDegrees(goalYaw - startYaw))
+                            + Math.abs(goalPitch - startPitch);
+            totalTicks = Math.max((int) MIN_DURATION_TICKS,
+                                  (int)(angleDist * TICKS_PER_DEGREE * 1.3f));
+            totalTicks += ThreadLocalRandom.current().nextInt(0, 4);
+            elapsed = 0;
+
+            state = State.RETURNING;
         }
     }
 
-    private static void tickTurnBack(MinecraftClient mc, ClientPlayerEntity self) {
-        float remaining = Math.abs(wrapDegrees(returnYaw - self.getYaw()));
-        float speed = adaptiveSpeed(remaining) * RETURN_SPEED_MULT;
-        float newYaw = smoothRotate(self.getYaw(), returnYaw, speed);
-        float newPitch = smoothRotate(self.getPitch(), returnPitch, speed * 0.6f);
+    private static void tickReturning(MinecraftClient mc, ClientPlayerEntity self) {
+        elapsed++;
+        float t = MathHelper.clamp((float) elapsed / totalTicks, 0f, 1f);
+        float eased = easeInOut(t);
 
-        newYaw += (ThreadLocalRandom.current().nextFloat() - 0.5f) * 1.2f;
-        newPitch += (ThreadLocalRandom.current().nextFloat() - 0.5f) * 0.6f;
+        float yaw = lerpAngle(startYaw, goalYaw, eased);
+        float pitch = MathHelper.lerp(eased, startPitch, goalPitch);
 
-        self.setYaw(newYaw);
-        self.setPitch(MathHelper.clamp(newPitch, -90f, 90f));
+        self.setYaw(yaw);
+        self.setPitch(MathHelper.clamp(pitch, -90f, 90f));
 
-        float yawDiff = Math.abs(wrapDegrees(newYaw - returnYaw));
-        float pitchDiff = Math.abs(newPitch - returnPitch);
-
-        if (yawDiff < 2.0f && pitchDiff < 2.0f) {
-            self.setYaw(returnYaw);
-            self.setPitch(returnPitch);
+        if (t >= 1f) {
+            self.setYaw(goalYaw);
+            self.setPitch(goalPitch);
             reset();
         }
     }
 
-    private static void performAttack(MinecraftClient mc, ClientPlayerEntity self, AbstractClientPlayerEntity target) {
+    private static void performAttack(MinecraftClient mc, ClientPlayerEntity self,
+                                       AbstractClientPlayerEntity target) {
         mc.getNetworkHandler().sendPacket(
             PlayerInteractEntityC2SPacket.attack(target, self.isSneaking())
         );
@@ -161,6 +184,17 @@ public final class InstantKillHandler {
         );
         self.swingHand(Hand.MAIN_HAND);
         self.resetLastAttackedTicks();
+    }
+
+    private static float easeInOut(float t) {
+        return t < 0.5f
+            ? 4f * t * t * t
+            : 1f - (float) Math.pow(-2f * t + 2f, 3) / 2f;
+    }
+
+    private static float lerpAngle(float from, float to, float t) {
+        float diff = wrapDegrees(to - from);
+        return from + diff * t;
     }
 
     private static float[] calcAim(ClientPlayerEntity self, AbstractClientPlayerEntity target) {
@@ -174,24 +208,11 @@ public final class InstantKillHandler {
         return new float[]{yaw, pitch};
     }
 
-    private static float smoothRotate(float current, float target, float maxStep) {
-        float diff = wrapDegrees(target - current);
-        if (Math.abs(diff) <= maxStep) return target;
-        return current + Math.signum(diff) * maxStep;
-    }
-
     private static float wrapDegrees(float deg) {
         deg = deg % 360f;
         if (deg >= 180f) deg -= 360f;
         if (deg < -180f) deg += 360f;
         return deg;
-    }
-
-    private static float adaptiveSpeed(float remainingDeg) {
-        float t = MathHelper.clamp(remainingDeg / 90f, 0f, 1f);
-        float base = MathHelper.lerp(t, TURN_SPEED_MIN * 0.5f, TURN_SPEED_MAX);
-        float jitter = (ThreadLocalRandom.current().nextFloat() - 0.5f) * 4f;
-        return Math.max(2f, base + jitter);
     }
 
     private static AbstractClientPlayerEntity resolveTarget(MinecraftClient mc) {
@@ -205,11 +226,11 @@ public final class InstantKillHandler {
     private static void reset() {
         state = State.IDLE;
         targetId = -1;
-        attacked = false;
-        delayTicks = 0;
+        elapsed = 0;
     }
 
-    private static AbstractClientPlayerEntity findTarget(MinecraftClient mc, ClientPlayerEntity self) {
+    private static AbstractClientPlayerEntity findTarget(MinecraftClient mc,
+                                                          ClientPlayerEntity self) {
         List<AbstractClientPlayerEntity> players = mc.world.getPlayers();
         AbstractClientPlayerEntity best = null;
         double bestDist = MAX_RANGE;
@@ -259,7 +280,8 @@ public final class InstantKillHandler {
         } else {
             int screenSlot = bestSlot;
             int syncId = player.currentScreenHandler.syncId;
-            mc.interactionManager.clickSlot(syncId, screenSlot, inv.selectedSlot, SlotActionType.SWAP, player);
+            mc.interactionManager.clickSlot(syncId, screenSlot, inv.selectedSlot,
+                                            SlotActionType.SWAP, player);
         }
         swapCooldown = 5;
     }
