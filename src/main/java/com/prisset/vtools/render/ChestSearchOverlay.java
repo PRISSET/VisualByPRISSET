@@ -9,6 +9,7 @@ import net.minecraft.client.gui.screen.ingame.HandledScreen;
 import net.minecraft.item.ItemStack;
 import net.minecraft.screen.ScreenHandler;
 import net.minecraft.screen.slot.Slot;
+import org.lwjgl.glfw.GLFW;
 
 public final class ChestSearchOverlay {
 
@@ -27,23 +28,11 @@ public final class ChestSearchOverlay {
         active = false;
     }
 
-    public static boolean onCharTyped(char chr) {
+    public static boolean onKeyPressed(int keyCode, int scanCode, int modifiers) {
         DisplayPrefs prefs = VToolsMod.getPrefs();
         if (prefs == null || !prefs.isChestSearchEnabled()) return false;
 
-        if (chr >= 32) {
-            query += chr;
-            active = true;
-            return true;
-        }
-        return false;
-    }
-
-    public static boolean onKeyPressed(int keyCode) {
-        DisplayPrefs prefs = VToolsMod.getPrefs();
-        if (prefs == null || !prefs.isChestSearchEnabled()) return false;
-
-        if (keyCode == 259 && active) {
+        if (keyCode == GLFW.GLFW_KEY_BACKSPACE && active) {
             if (!query.isEmpty()) {
                 query = query.substring(0, query.length() - 1);
             }
@@ -51,9 +40,29 @@ public final class ChestSearchOverlay {
             return true;
         }
 
-        if (keyCode == 256 && active) {
+        if (keyCode == GLFW.GLFW_KEY_ESCAPE && active) {
             query = "";
             active = false;
+            return true;
+        }
+
+        String keyName = GLFW.glfwGetKeyName(keyCode, scanCode);
+        if (keyName != null && !keyName.isEmpty()) {
+            char ch = keyName.charAt(0);
+            if (ch >= 32 && ch < 127) {
+                boolean shift = (modifiers & GLFW.GLFW_MOD_SHIFT) != 0;
+                if (shift && ch >= 'a' && ch <= 'z') {
+                    ch = (char) (ch - 32);
+                }
+                query += ch;
+                active = true;
+                return true;
+            }
+        }
+
+        if (keyCode == GLFW.GLFW_KEY_SPACE) {
+            query += ' ';
+            active = true;
             return true;
         }
 

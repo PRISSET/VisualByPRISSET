@@ -34,16 +34,9 @@ public abstract class ContainerSearchMixin {
         ChestSearchOverlay.render(ctx, (HandledScreen<?>) (Object) this, x, y);
     }
 
-    @Inject(method = "charTyped", at = @At("HEAD"), cancellable = true)
-    private void vtools$onCharTyped(char chr, int modifiers, CallbackInfoReturnable<Boolean> cir) {
-        if (ChestSearchOverlay.onCharTyped(chr)) {
-            cir.setReturnValue(true);
-        }
-    }
-
     @Inject(method = "keyPressed", at = @At("HEAD"), cancellable = true)
     private void vtools$onKeyPressed(int keyCode, int scanCode, int modifiers, CallbackInfoReturnable<Boolean> cir) {
-        if (ChestSearchOverlay.onKeyPressed(keyCode)) {
+        if (ChestSearchOverlay.onKeyPressed(keyCode, scanCode, modifiers)) {
             cir.setReturnValue(true);
         }
     }
